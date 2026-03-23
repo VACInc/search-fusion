@@ -1,0 +1,40 @@
+{
+  "id": "search-broker",
+  "name": "Search Broker",
+  "description": "Federated web search broker for OpenClaw that reuses configured providers in parallel.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultProviders": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Preferred provider ids when a request does not specify providers explicitly."
+      },
+      "excludeProviders": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Provider ids to never use by default."
+      },
+      "countPerProvider": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10,
+        "description": "Default number of results requested from each provider."
+      },
+      "maxMergedResults": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "description": "Maximum merged results returned by the broker."
+      },
+      "providerTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000,
+        "description": "Per-provider timeout when federating requests."
+      }
+    }
+  }
+}

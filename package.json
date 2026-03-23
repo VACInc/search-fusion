@@ -1,0 +1,31 @@
+{
+  "name": "@vacinc/openclaw-search-broker",
+  "version": "0.1.0",
+  "description": "Federated OpenClaw web search broker that fans out across configured providers, merges results, and preserves attribution.",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --test --import tsx test/**/*.test.ts"
+  },
+  "files": [
+    "index.ts",
+    "src/",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.3.22"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "0.34.48",
+    "@types/node": "^22.15.30",
+    "openclaw": "2026.3.13",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
