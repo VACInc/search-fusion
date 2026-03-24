@@ -51,3 +51,81 @@ test("normalizeProviderPayload surfaces provider error when nothing usable retur
   assert.equal(normalized.results.length, 0);
   assert.match(normalized.error ?? "", /missing_xai_api_key/);
 });
+
+test("normalizeProviderPayload handles Exa-style structured results", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "exa",
+    payload: {
+      results: [
+        {
+          title: "OpenClaw Web Search",
+          url: "https://docs.openclaw.ai/tools/web?utm_campaign=exa",
+          description: "Neural result summary",
+          summary: "Longer summary that should be ignored in favor of description",
+          highlightScores: [0.9, 0.7],
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.results.length, 1);
+  assert.equal(normalized.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(normalized.results[0]?.snippet, "Neural result summary");
+});
+
+test("normalizeProviderPayload handles answer-first providers like Kimi/Grok/Perplexity sonar", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "kimi",
+    payload: {
+      content: "Grounded synthesis about OpenClaw search.",
+      citations: [
+        { url: "https://docs.openclaw.ai/tools/web", title: "Docs" },
+        "https://github.com/openclaw/openclaw",
+      ],
+    },
+  });
+
+  assert.equal(normalized.answer?.providerId, "kimi");
+  assert.equal(normalized.results.length, 2);
+  assert.ok(normalized.results.every((result) => result.sourceType === "citations"));
+});
+
+test("normalizeProviderPayload handles nested web.results payloads", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "perplexity",
+    payload: {
+      web: {
+        results: [
+          {
+            title: "OpenClaw Docs",
+            url: "https://docs.openclaw.ai/tools/web",
+            snippet: "Nested web result",
+          },
+        ],
+      },
+    },
+  });
+
+  assert.equal(normalized.results.length, 1);
+  assert.equal(normalized.results[0]?.sourceType, "results");
+  assert.equal(normalized.results[0]?.snippet, "Nested web result");
+});
+
+test("normalizeProviderPayload handles sources arrays from research-style providers", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "firecrawl",
+    payload: {
+      sources: [
+        {
+          title: "Firecrawl blog",
+          url: "https://www.firecrawl.dev/blog/openclaw-web-search",
+          description: "Search pipeline article",
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.results.length, 1);
+  assert.equal(normalized.results[0]?.sourceType, "sources");
+  assert.equal(normalized.results[0]?.title, "Firecrawl blog");
+});

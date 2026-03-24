@@ -20,6 +20,14 @@ const providers = [
     getCredentialValue: () => undefined,
   },
   {
+    id: "gemini",
+    label: "Gemini",
+    autoDetectOrder: 30,
+    envVars: [],
+    getConfiguredCredentialValue: () => "gemini-key",
+    getCredentialValue: () => undefined,
+  },
+  {
     id: "search-fusion",
     label: "Search Fusion",
     autoDetectOrder: 999,
@@ -29,49 +37,88 @@ const providers = [
   },
 ] as const;
 
-test("discoverProviders excludes self and marks configured providers", () => {
-  const discovered = discoverProviders({
+function getDiscovered() {
+  return discoverProviders({
     providers: [...providers],
     config: {},
     selfId: "search-fusion",
   });
+}
+
+test("discoverProviders excludes self and marks configured providers", () => {
+  const discovered = getDiscovered();
 
   assert.deepEqual(
     discovered.map((provider) => ({ id: provider.id, configured: provider.configured })),
     [
       { id: "brave", configured: true },
       { id: "tavily", configured: false },
+      { id: "gemini", configured: true },
     ],
   );
 });
 
-test("resolveSelectedProviders prefers configured providers by default", () => {
-  const discovered = discoverProviders({
-    providers: [...providers],
-    config: {},
-    selfId: "search-fusion",
-  });
-
+test("resolveSelectedProviders falls back to configured providers by default", () => {
   const selected = resolveSelectedProviders({
-    availableProviders: discovered,
+    availableProviders: getDiscovered(),
     config: {},
   });
 
-  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini"]);
 });
 
 test("resolveSelectedProviders honors explicit all and exclusions", () => {
-  const discovered = discoverProviders({
-    providers: [...providers],
-    config: {},
-    selfId: "search-fusion",
-  });
-
   const selected = resolveSelectedProviders({
-    availableProviders: discovered,
+    availableProviders: getDiscovered(),
     requestProviders: ["all"],
     config: { excludeProviders: ["brave"] },
   });
 
-  assert.deepEqual(selected.map((provider) => provider.id), ["tavily"]);
+  assert.deepEqual(selected.map((provider) => provider.id), ["gemini"]);
+});
+
+test("resolveSelectedProviders honors explicit mode", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMode: "deep",
+    config: {
+      modes: {
+        fast: ["brave"],
+        deep: ["tavily", "gemini"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["tavily", "gemini"]);
+});
+
+test("resolveSelectedProviders honors defaultMode before legacy defaultProviders", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    config: {
+      defaultMode: "balanced",
+      modes: {
+        balanced: ["brave", "tavily"],
+      },
+      defaultProviders: ["gemini"],
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "tavily"]);
+});
+
+test("resolveSelectedProviders throws on unknown explicit mode", () => {
+  assert.throws(
+    () =>
+      resolveSelectedProviders({
+        availableProviders: getDiscovered(),
+        requestMode: "chaos",
+        config: {
+          modes: {
+            fast: ["brave"],
+          },
+        },
+      }),
+    /Unknown Search Fusion mode: chaos/,
+  );
 });

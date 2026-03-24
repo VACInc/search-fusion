@@ -44,7 +44,12 @@ Optional plugin config:
       "search-fusion": {
         "enabled": true,
         "config": {
-          "defaultProviders": ["brave", "tavily", "firecrawl"],
+          "modes": {
+            "fast": ["brave"],
+            "balanced": ["brave", "tavily"],
+            "deep": ["brave", "tavily", "gemini"]
+          },
+          "defaultMode": "balanced",
           "excludeProviders": ["grok"],
           "countPerProvider": 5,
           "maxMergedResults": 10,
@@ -55,6 +60,13 @@ Optional plugin config:
   }
 }
 ```
+
+Resolution order:
+- explicit `providers`
+- explicit `mode`
+- configured `defaultMode`
+- configured `defaultProviders` (backward compatibility)
+- otherwise all configured providers
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -78,9 +90,11 @@ Example prompt:
 
 - Search across all configured providers for `openclaw plugin sdk runtime helpers`
 - Search brave and tavily only for `best local llm web search api` with 3 results each
+- Search in `deep` mode for `best local llm web search api`
 
 Supported arguments:
 - `query`
+- `mode` — user-defined mode name from plugin config
 - `providers` — provider ids, or `all`
 - `count`
 - `maxMergedResults`
@@ -107,7 +121,8 @@ pnpm test
 
 ## Current behavior
 
-- defaults to configured providers when no provider list is given
+- no hardcoded modes; users define modes in config if they want them
+- falls back to all configured providers when nothing else is specified
 - excludes itself to avoid recursion
 - dedupes by canonical URL
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests plus citation-derived hits

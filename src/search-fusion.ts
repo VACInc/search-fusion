@@ -169,6 +169,7 @@ export async function runSearchFusion(params: {
   });
   const selectedProviders = resolveSelectedProviders({
     availableProviders,
+    requestMode: params.request.mode,
     requestProviders: params.request.providers,
     config: brokerConfig,
   });

@@ -123,6 +123,58 @@ test("runSearchFusion uses configured default providers and excludes itself", as
   assert.equal(payload.provider, "search-fusion");
 });
 
+test("runSearchFusion honors explicit request mode", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      modes: {
+        fast: ["brave"],
+        deep: ["gemini", "tavily"],
+      },
+    },
+    request: {
+      query: "openclaw",
+      mode: "deep",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
+});
+
+test("runSearchFusion falls back to all configured providers when no defaults or mode are set", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave", "gemini", "tavily"]);
+});
+
+test("runSearchFusion throws on unknown explicit mode", async () => {
+  await assert.rejects(
+    async () =>
+      await runSearchFusion({
+        runtime: createRuntime() as never,
+        config: {},
+        pluginConfig: {
+          modes: {
+            fast: ["brave"],
+          },
+        },
+        request: {
+          query: "openclaw",
+          mode: "chaos",
+        },
+      }),
+    /Unknown Search Fusion mode: chaos/,
+  );
+});
+
 test("runSearchFusion carries answer-style providers as digests and merged citation hits", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,

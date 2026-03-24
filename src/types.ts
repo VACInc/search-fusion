@@ -1,4 +1,8 @@
+export type SearchFusionModeMap = Record<string, string[]>;
+
 export type SearchFusionConfig = {
+  defaultMode?: string;
+  modes?: SearchFusionModeMap;
   defaultProviders?: string[];
   excludeProviders?: string[];
   countPerProvider?: number;
@@ -8,6 +12,7 @@ export type SearchFusionConfig = {
 
 export type ProviderSelectionRequest = {
   query: string;
+  mode?: string;
   providers?: string[];
   count?: number;
   maxMergedResults?: number;

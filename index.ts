@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import { jsonResult, type OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { discoverProviders } from "./src/provider-discovery.js";
 import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
 import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
@@ -7,6 +7,9 @@ import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
 const SearchFusionParameters = Type.Object(
   {
     query: Type.String({ description: "Search query string." }),
+    mode: Type.Optional(
+      Type.String({ description: "Optional user-defined mode name from Search Fusion config (for example fast, balanced, deep, or a custom mode)." }),
+    ),
     providers: Type.Optional(
       Type.Array(
         Type.String({ description: "Provider id, or use 'all' / '*' to fan out to every configured provider." }),
@@ -71,6 +74,18 @@ type SearchFusionWebSearchProvider = {
 
 type ProviderListRequest = Static<typeof ProviderListParameters>;
 
+type AgentToolJsonResult = {
+  content: Array<{ type: "text"; text: string }>;
+  details: unknown;
+};
+
+function asJsonResult(payload: unknown): AgentToolJsonResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+    details: payload,
+  };
+}
+
 const ProviderListParameters = Type.Object(
   {
     onlyConfigured: Type.Optional(
@@ -132,7 +147,7 @@ const plugin = {
           request: params as SearchFusionRequest,
         });
 
-        return jsonResult({
+        return asJsonResult({
           summary: renderFusionSummary(payload, Boolean((params as { includeFailures?: boolean }).includeFailures)),
           payload,
         });
@@ -158,7 +173,7 @@ const plugin = {
             `- ${provider.id}: ${provider.label}${provider.configured ? " [configured]" : " [not configured]"}${provider.hint ? ` — ${provider.hint}` : ""}`,
         );
 
-        return jsonResult({
+        return asJsonResult({
           summary: lines.length > 0 ? lines.join("\n") : "No runtime web search providers discovered.",
           providers: visibleProviders,
         });

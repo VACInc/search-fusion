@@ -7,10 +7,22 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "defaultMode": {
+        "type": "string",
+        "description": "Optional default mode name to use when a request omits both providers and mode."
+      },
+      "modes": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "description": "User-defined mode map. Each key is a mode name and each value is a provider id list."
+      },
       "defaultProviders": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "Preferred provider ids when a request does not specify providers explicitly."
+        "description": "Backward-compatible fallback provider ids when a request omits both providers and mode."
       },
       "excludeProviders": {
         "type": "array",

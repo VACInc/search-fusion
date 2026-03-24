@@ -15,6 +15,37 @@ function hasValue(value: unknown): boolean {
   return false;
 }
 
+function normalizeName(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : undefined;
+}
+
+function normalizeIdList(values: string[] | undefined): string[] {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))];
+}
+
+function normalizeModes(modes: SearchFusionConfig["modes"]): Map<string, string[]> {
+  const entries = Object.entries(modes ?? {});
+  return new Map(
+    entries
+      .map(([name, providers]) => [normalizeName(name), normalizeIdList(providers)] as const)
+      .filter((entry): entry is [string, string[]] => Boolean(entry[0])),
+  );
+}
+
+function resolveModeProviders(params: {
+  mode: string;
+  modes: Map<string, string[]>;
+  byId: Map<string, ResolvedProvider>;
+}): ResolvedProvider[] | undefined {
+  const providerIds = params.modes.get(params.mode);
+  if (!providerIds) return undefined;
+  return providerIds
+    .map((id) => params.byId.get(id))
+    .filter((provider): provider is ResolvedProvider => Boolean(provider));
+}
+
 export function isProviderConfigured(provider: RuntimeWebSearchProvider, config: unknown): boolean {
   try {
     if (hasValue(provider.getConfiguredCredentialValue?.(config))) {
@@ -63,13 +94,9 @@ export function discoverProviders(params: {
     });
 }
 
-function normalizeIdList(values: string[] | undefined): string[] {
-  if (!Array.isArray(values)) return [];
-  return [...new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean))];
-}
-
 export function resolveSelectedProviders(params: {
   availableProviders: ResolvedProvider[];
+  requestMode?: string;
   requestProviders?: string[];
   config: SearchFusionConfig;
 }): ResolvedProvider[] {
@@ -78,6 +105,8 @@ export function resolveSelectedProviders(params: {
   const byId = new Map(available.map((provider) => [provider.id, provider]));
   const configured = available.filter((provider) => provider.configured);
   const requested = normalizeIdList(params.requestProviders);
+  const requestMode = normalizeName(params.requestMode);
+  const modes = normalizeModes(params.config.modes);
 
   const expandAll = requested.includes("all") || requested.includes("*");
   if (expandAll) {
@@ -86,6 +115,25 @@ export function resolveSelectedProviders(params: {
 
   if (requested.length > 0) {
     return requested.map((id) => byId.get(id)).filter((provider): provider is ResolvedProvider => Boolean(provider));
+  }
+
+  if (requestMode) {
+    const selectedForMode = resolveModeProviders({ mode: requestMode, modes, byId });
+    if (!selectedForMode) {
+      throw new Error(`Unknown Search Fusion mode: ${params.requestMode}`);
+    }
+    if (selectedForMode.length === 0) {
+      throw new Error(`Search Fusion mode \"${params.requestMode}\" resolved to no available providers.`);
+    }
+    return selectedForMode;
+  }
+
+  const defaultMode = normalizeName(params.config.defaultMode);
+  if (defaultMode) {
+    const selectedForDefaultMode = resolveModeProviders({ mode: defaultMode, modes, byId });
+    if (selectedForDefaultMode && selectedForDefaultMode.length > 0) {
+      return selectedForDefaultMode;
+    }
   }
 
   const defaults = normalizeIdList(params.config.defaultProviders)

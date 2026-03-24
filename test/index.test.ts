@@ -8,7 +8,12 @@ test("plugin registers provider and both tools", async () => {
 
   const api = {
     config: {},
-    pluginConfig: { defaultProviders: ["brave", "gemini", "tavily"] },
+    pluginConfig: {
+      modes: {
+        fast: ["brave"],
+        deep: ["brave", "gemini", "tavily"],
+      },
+    },
     runtime: {
       webSearch: {
         listProviders: () => [
@@ -75,25 +80,30 @@ test("plugin registers provider and both tools", async () => {
   assert.ok(fusionTool);
 
   const providersResult = (await providerListTool?.execute("1", {})) as {
+    providers?: Array<{ id: string }>;
     data?: { providers?: Array<{ id: string }> };
     details?: { providers?: Array<{ id: string }> };
   };
   const providerIds =
+    providersResult.providers?.map((item) => item.id) ??
     providersResult.data?.providers?.map((item) => item.id) ??
     providersResult.details?.providers?.map((item) => item.id);
   assert.deepEqual(providerIds, ["brave", "gemini", "tavily"]);
 
-  const fusionResult = (await fusionTool?.execute("2", { query: "test", count: 1 })) as {
+  const fusionResult = (await fusionTool?.execute("2", { query: "test", mode: "fast", count: 1 })) as {
+    payload?: { provider?: string; providersQueried?: string[] };
     data?: { payload?: { provider?: string; providersQueried?: string[] } };
     details?: { payload?: { provider?: string; providersQueried?: string[] } };
   };
-  const fusionPayload = fusionResult.data?.payload ?? fusionResult.details?.payload;
+  const fusionPayload = fusionResult.payload ?? fusionResult.data?.payload ?? fusionResult.details?.payload;
   assert.equal(fusionPayload?.provider, "search-fusion");
-  assert.deepEqual(fusionPayload?.providersQueried, ["brave", "gemini", "tavily"]);
+  assert.deepEqual(fusionPayload?.providersQueried, ["brave"]);
 
   const providerTool = provider?.createTool();
-  const providerResult = (await providerTool?.execute({ query: "test" })) as {
+  const providerResult = (await providerTool?.execute({ query: "test", mode: "deep" })) as {
     provider?: string;
+    providersQueried?: string[];
   };
   assert.equal(providerResult?.provider, "search-fusion");
+  assert.deepEqual(providerResult?.providersQueried, ["brave", "gemini", "tavily"]);
 });
