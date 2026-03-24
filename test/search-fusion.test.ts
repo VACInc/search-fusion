@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runSearchBroker } from "../src/search-broker.js";
+import { runSearchFusion } from "../src/search-fusion.js";
 
-test("runSearchBroker merges duplicate URLs across providers", async () => {
+test("runSearchFusion merges duplicate URLs across providers", async () => {
   const runtime = {
     webSearch: {
       listProviders: () => [
@@ -23,8 +23,8 @@ test("runSearchBroker merges duplicate URLs across providers", async () => {
           getCredentialValue: () => undefined,
         },
         {
-          id: "search-broker",
-          label: "Search Broker",
+          id: "search-fusion",
+          label: "Search Fusion",
           autoDetectOrder: 999,
           envVars: [],
           getConfiguredCredentialValue: () => "always-enabled",
@@ -63,7 +63,7 @@ test("runSearchBroker merges duplicate URLs across providers", async () => {
     },
   };
 
-  const payload = await runSearchBroker({
+  const payload = await runSearchFusion({
     runtime: runtime as never,
     config: {},
     pluginConfig: {},

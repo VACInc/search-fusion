@@ -20,8 +20,8 @@ const providers = [
     getCredentialValue: () => undefined,
   },
   {
-    id: "search-broker",
-    label: "Search Broker",
+    id: "search-fusion",
+    label: "Search Fusion",
     autoDetectOrder: 999,
     envVars: [],
     getConfiguredCredentialValue: () => "always-enabled",
@@ -33,7 +33,7 @@ test("discoverProviders excludes self and marks configured providers", () => {
   const discovered = discoverProviders({
     providers: [...providers],
     config: {},
-    selfId: "search-broker",
+    selfId: "search-fusion",
   });
 
   assert.deepEqual(
@@ -49,7 +49,7 @@ test("resolveSelectedProviders prefers configured providers by default", () => {
   const discovered = discoverProviders({
     providers: [...providers],
     config: {},
-    selfId: "search-broker",
+    selfId: "search-fusion",
   });
 
   const selected = resolveSelectedProviders({
@@ -64,7 +64,7 @@ test("resolveSelectedProviders honors explicit all and exclusions", () => {
   const discovered = discoverProviders({
     providers: [...providers],
     config: {},
-    selfId: "search-broker",
+    selfId: "search-fusion",
   });
 
   const selected = resolveSelectedProviders({

@@ -1,7 +1,7 @@
 {
-  "id": "search-broker",
-  "name": "Search Broker",
-  "description": "Federated web search broker for OpenClaw that reuses configured providers in parallel.",
+  "id": "search-fusion",
+  "name": "Search Fusion",
+  "description": "Federated web search fusion for OpenClaw that reuses configured providers in parallel.",
   "version": "0.1.0",
   "configSchema": {
     "type": "object",

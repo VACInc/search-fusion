@@ -1,10 +1,10 @@
 import type {
-  BrokerMergedResult,
-  BrokerSearchPayload,
+  FusionMergedResult,
+  FusionSearchPayload,
   ProviderRunResult,
   ProviderSelectionRequest,
   ResolvedProvider,
-  SearchBrokerConfig,
+  SearchFusionConfig,
   SearchRuntime,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
@@ -13,11 +13,11 @@ import { normalizeProviderPayload } from "./result-normalizer.js";
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
 const DEFAULT_PROVIDER_TIMEOUT_MS = 15000;
-const SEARCH_BROKER_PROVIDER_ID = "search-broker";
+const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
 
-function asConfig(pluginConfig: unknown): SearchBrokerConfig {
+function asConfig(pluginConfig: unknown): SearchFusionConfig {
   return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig)
-    ? (pluginConfig as SearchBrokerConfig)
+    ? (pluginConfig as SearchFusionConfig)
     : {};
 }
 
@@ -25,7 +25,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildProviderArgs(request: ProviderSelectionRequest, config: SearchBrokerConfig): Record<string, unknown> {
+function buildProviderArgs(request: ProviderSelectionRequest, config: SearchFusionConfig): Record<string, unknown> {
   return {
     query: request.query,
     count: clamp(request.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER, 1, 10),
@@ -55,8 +55,8 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-function mergeResults(results: ProviderRunResult[], maxMergedResults: number): BrokerMergedResult[] {
-  const merged = new Map<string, BrokerMergedResult>();
+function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
+  const merged = new Map<string, FusionMergedResult>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -155,17 +155,17 @@ async function runProvider(params: {
   }
 }
 
-export async function runSearchBroker(params: {
+export async function runSearchFusion(params: {
   runtime: SearchRuntime;
   config: unknown;
   pluginConfig: unknown;
   request: ProviderSelectionRequest;
-}): Promise<BrokerSearchPayload> {
+}): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
   const availableProviders = discoverProviders({
     providers: params.runtime.webSearch.listProviders({ config: params.config }),
     config: params.config,
-    selfId: SEARCH_BROKER_PROVIDER_ID,
+    selfId: SEARCH_FUSION_PROVIDER_ID,
   });
   const selectedProviders = resolveSelectedProviders({
     availableProviders,
@@ -176,7 +176,7 @@ export async function runSearchBroker(params: {
   if (selectedProviders.length === 0) {
     return {
       query: params.request.query,
-      provider: SEARCH_BROKER_PROVIDER_ID,
+      provider: SEARCH_FUSION_PROVIDER_ID,
       tookMs: 0,
       count: 0,
       configuredProviders: availableProviders.filter((provider) => provider.configured).map((provider) => provider.id),
@@ -189,7 +189,7 @@ export async function runSearchBroker(params: {
       externalContent: {
         untrusted: true,
         source: "web_search",
-        provider: SEARCH_BROKER_PROVIDER_ID,
+        provider: SEARCH_FUSION_PROVIDER_ID,
         aggregated: true,
       },
     };
@@ -227,7 +227,7 @@ export async function runSearchBroker(params: {
 
   return {
     query: params.request.query,
-    provider: SEARCH_BROKER_PROVIDER_ID,
+    provider: SEARCH_FUSION_PROVIDER_ID,
     tookMs: Date.now() - start,
     count: mergedResults.length,
     configuredProviders: availableProviders.filter((provider) => provider.configured).map((provider) => provider.id),
@@ -249,13 +249,13 @@ export async function runSearchBroker(params: {
     externalContent: {
       untrusted: true,
       source: "web_search",
-      provider: SEARCH_BROKER_PROVIDER_ID,
+      provider: SEARCH_FUSION_PROVIDER_ID,
       aggregated: true,
     },
   };
 }
 
-export function renderBrokerSummary(payload: BrokerSearchPayload, includeFailures = false): string {
+export function renderFusionSummary(payload: FusionSearchPayload, includeFailures = false): string {
   const lines: string[] = [];
   lines.push(
     `Search broker ran ${payload.providersQueried.length} provider${payload.providersQueried.length === 1 ? "" : "s"} in ${payload.tookMs}ms.`,

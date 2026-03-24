@@ -1,4 +1,4 @@
-import type { ResolvedProvider, RuntimeWebSearchProvider, SearchBrokerConfig } from "./types.js";
+import type { ResolvedProvider, RuntimeWebSearchProvider, SearchFusionConfig } from "./types.js";
 
 function asSearchConfig(config: unknown): Record<string, unknown> | undefined {
   const maybe = (config as { tools?: { web?: { search?: Record<string, unknown> } } } | undefined)?.tools?.web
@@ -71,7 +71,7 @@ function normalizeIdList(values: string[] | undefined): string[] {
 export function resolveSelectedProviders(params: {
   availableProviders: ResolvedProvider[];
   requestProviders?: string[];
-  config: SearchBrokerConfig;
+  config: SearchFusionConfig;
 }): ResolvedProvider[] {
   const excluded = new Set(normalizeIdList(params.config.excludeProviders));
   const available = params.availableProviders.filter((provider) => !excluded.has(provider.id));

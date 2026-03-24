@@ -1,4 +1,4 @@
-# OpenClaw Search Broker
+# Search Fusion
 
 Federated web search for OpenClaw.
 
@@ -12,15 +12,15 @@ The broker relies on the newer plugin runtime web-search helpers. Older OpenClaw
 
 ## What it adds
 
-- A **web search provider** named `search-broker`
-- A direct **agent tool** named `search_broker`
-- A helper tool named `search_broker_providers`
+- A **web search provider** named `search-fusion`
+- A direct **agent tool** named `search_fusion`
+- A helper tool named `search_fusion_providers`
 
 ## Why this exists
 
 OpenClaw already has solid search providers. The missing piece was orchestration.
 
-Search Broker is the orchestration layer:
+Search Fusion is the orchestration layer:
 - discover configured providers
 - run them in parallel
 - merge duplicate URLs
@@ -30,7 +30,7 @@ Search Broker is the orchestration layer:
 ## Install
 
 ```bash
-openclaw plugins install @vacinc/openclaw-search-broker
+openclaw plugins install @vacinc/search-fusion
 ```
 
 ## Configure
@@ -41,7 +41,7 @@ Optional plugin config:
 {
   "plugins": {
     "entries": {
-      "search-broker": {
+      "search-fusion": {
         "enabled": true,
         "config": {
           "defaultProviders": ["brave", "tavily", "firecrawl"],
@@ -63,7 +63,7 @@ If you want the built-in `web_search` tool to route through the broker by defaul
   "tools": {
     "web": {
       "search": {
-        "provider": "search-broker"
+        "provider": "search-fusion"
       }
     }
   }
@@ -72,7 +72,7 @@ If you want the built-in `web_search` tool to route through the broker by defaul
 
 ## Tool usage
 
-### `search_broker`
+### `search_fusion`
 
 Example prompt:
 
@@ -93,7 +93,7 @@ Supported arguments:
 - `ui_lang`
 - `includeFailures`
 
-### `search_broker_providers`
+### `search_fusion_providers`
 
 Lists the providers visible to the broker and whether they appear configured.
 

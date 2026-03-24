@@ -1,4 +1,4 @@
-export type SearchBrokerConfig = {
+export type SearchFusionConfig = {
   defaultProviders?: string[];
   excludeProviders?: string[];
   countPerProvider?: number;
@@ -69,7 +69,7 @@ export type ProviderRunResult = {
   error?: string;
 };
 
-export type BrokerMergedResult = {
+export type FusionMergedResult = {
   title: string;
   url: string;
   canonicalUrl: string;
@@ -91,9 +91,9 @@ export type SearchRuntime = {
   };
 };
 
-export type BrokerSearchPayload = {
+export type FusionSearchPayload = {
   query: string;
-  provider: "search-broker";
+  provider: "search-fusion";
   tookMs: number;
   count: number;
   configuredProviders: string[];
@@ -109,11 +109,11 @@ export type BrokerSearchPayload = {
     error?: string;
   }>;
   answers: ProviderAnswerDigest[];
-  results: BrokerMergedResult[];
+  results: FusionMergedResult[];
   externalContent: {
     untrusted: true;
     source: "web_search";
-    provider: "search-broker";
+    provider: "search-fusion";
     aggregated: true;
   };
 };

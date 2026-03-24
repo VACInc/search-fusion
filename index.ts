@@ -1,10 +1,10 @@
 import { Type, type Static } from "@sinclair/typebox";
 import { jsonResult, type OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { discoverProviders } from "./src/provider-discovery.js";
-import { renderBrokerSummary, runSearchBroker } from "./src/search-broker.js";
+import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
 import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
 
-const SearchBrokerParameters = Type.Object(
+const SearchFusionParameters = Type.Object(
   {
     query: Type.String({ description: "Search query string." }),
     providers: Type.Optional(
@@ -40,15 +40,15 @@ const SearchBrokerParameters = Type.Object(
   { additionalProperties: false },
 );
 
-type SearchBrokerRequest = Static<typeof SearchBrokerParameters>;
+type SearchFusionRequest = Static<typeof SearchFusionParameters>;
 
-type SearchBrokerPluginApi = Omit<OpenClawPluginApi, "runtime"> & {
+type SearchFusionPluginApi = Omit<OpenClawPluginApi, "runtime"> & {
   runtime: OpenClawPluginApi["runtime"] & SearchRuntime;
   pluginConfig?: Record<string, unknown>;
-  registerWebSearchProvider?: (provider: SearchBrokerWebSearchProvider) => void;
+  registerWebSearchProvider?: (provider: SearchFusionWebSearchProvider) => void;
 };
 
-type SearchBrokerWebSearchProvider = {
+type SearchFusionWebSearchProvider = {
   id: string;
   label: string;
   hint?: string;
@@ -80,27 +80,27 @@ const ProviderListParameters = Type.Object(
   { additionalProperties: false },
 );
 
-function createSearchBrokerProvider(api: SearchBrokerPluginApi): SearchBrokerWebSearchProvider {
+function createSearchFusionProvider(api: SearchFusionPluginApi): SearchFusionWebSearchProvider {
   return {
-    id: "search-broker",
-    label: "Search Broker",
+    id: "search-fusion",
+    label: "Search Fusion",
     hint: "Fan out across configured web search providers in parallel and merge the results.",
     credentialLabel: "No credential required",
     envVars: [],
     placeholder: "",
-    signupUrl: "https://github.com/VACInc/openclaw-search-broker",
-    docsUrl: "https://github.com/VACInc/openclaw-search-broker#readme",
+    signupUrl: "https://github.com/VACInc/search-fusion",
+    docsUrl: "https://github.com/VACInc/search-fusion#readme",
     autoDetectOrder: 999,
-    credentialPath: "plugins.entries.search-broker.config.__unused",
+    credentialPath: "plugins.entries.search-fusion.config.__unused",
     getCredentialValue: () => undefined,
     setCredentialValue: () => {},
     getConfiguredCredentialValue: () => "always-enabled",
     createTool: () => ({
       description:
         "Search across multiple configured web search providers in parallel, merge duplicate URLs, and preserve provider attribution.",
-      parameters: SearchBrokerParameters,
+      parameters: SearchFusionParameters,
       execute: async (args) =>
-        await runSearchBroker({
+        await runSearchFusion({
           runtime: api.runtime,
           config: api.config,
           pluginConfig: api.pluginConfig,
@@ -111,44 +111,44 @@ function createSearchBrokerProvider(api: SearchBrokerPluginApi): SearchBrokerWeb
 }
 
 const plugin = {
-  id: "search-broker",
-  name: "Search Broker",
-  description: "Federated web search broker for OpenClaw.",
+  id: "search-fusion",
+  name: "Search Fusion",
+  description: "Federated web search fusion for OpenClaw.",
   register(api: OpenClawPluginApi) {
-    const searchApi = api as SearchBrokerPluginApi;
-    searchApi.registerWebSearchProvider?.(createSearchBrokerProvider(searchApi));
+    const searchApi = api as SearchFusionPluginApi;
+    searchApi.registerWebSearchProvider?.(createSearchFusionProvider(searchApi));
 
     api.registerTool({
-      name: "search_broker",
-      label: "Search Broker",
+      name: "search_fusion",
+      label: "Search Fusion",
       description:
         "Search across multiple configured web search providers in parallel, merge duplicate URLs, and preserve provider attribution.",
-      parameters: SearchBrokerParameters,
-      async execute(_id: string, params: SearchBrokerRequest) {
-        const payload = await runSearchBroker({
+      parameters: SearchFusionParameters,
+      async execute(_id: string, params: SearchFusionRequest) {
+        const payload = await runSearchFusion({
           runtime: searchApi.runtime,
           config: searchApi.config,
           pluginConfig: searchApi.pluginConfig,
-          request: params as SearchBrokerRequest,
+          request: params as SearchFusionRequest,
         });
 
         return jsonResult({
-          summary: renderBrokerSummary(payload, Boolean((params as { includeFailures?: boolean }).includeFailures)),
+          summary: renderFusionSummary(payload, Boolean((params as { includeFailures?: boolean }).includeFailures)),
           payload,
         });
       },
     });
 
     api.registerTool({
-      name: "search_broker_providers",
-      label: "Search Broker Providers",
-      description: "List the web search providers visible to Search Broker and whether they appear configured.",
+      name: "search_fusion_providers",
+      label: "Search Fusion Providers",
+      description: "List the web search providers visible to Search Fusion and whether they appear configured.",
       parameters: ProviderListParameters,
       async execute(_id: string, params: ProviderListRequest) {
         const providers = discoverProviders({
           providers: searchApi.runtime.webSearch.listProviders({ config: searchApi.config }),
           config: searchApi.config,
-          selfId: "search-broker",
+          selfId: "search-fusion",
         });
         const visibleProviders = params.onlyConfigured
           ? providers.filter((provider) => provider.configured)
