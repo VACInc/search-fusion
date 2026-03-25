@@ -63,10 +63,13 @@ Optional plugin config:
             "backoffMultiplier": 2,
             "maxBackoffMs": 5000
           },
-          "providerRetries": {
+          "providerConfig": {
             "gemini": {
-              "maxAttempts": 4,
-              "backoffMs": 1500
+              "timeoutMs": 60000,
+              "retry": {
+                "maxAttempts": 4,
+                "backoffMs": 1500
+              }
             }
           }
         }
@@ -82,6 +85,8 @@ Resolution order:
 - configured `defaultMode`
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
+
+`providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -141,7 +146,7 @@ pnpm test
 - treats keyless providers (for example DuckDuckGo) as configured/available
 - excludes itself to avoid recursion
 - dedupes by canonical URL
-- retries transient provider failures with global defaults and per-provider overrides
+- retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits

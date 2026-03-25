@@ -7,6 +7,12 @@ export type SearchFusionRetryConfig = {
   maxBackoffMs?: number;
 };
 
+export type SearchFusionProviderConfig = {
+  retry?: SearchFusionRetryConfig;
+  timeoutMs?: number;
+  count?: number;
+};
+
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
@@ -16,6 +22,7 @@ export type SearchFusionConfig = {
   maxMergedResults?: number;
   providerTimeoutMs?: number;
   retry?: SearchFusionRetryConfig;
+  providerConfig?: Record<string, SearchFusionProviderConfig>;
   providerRetries?: Record<string, SearchFusionRetryConfig>;
 };
 

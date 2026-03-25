@@ -326,10 +326,12 @@ test("runSearchFusion honors per-provider retry overrides", async () => {
         maxAttempts: 2,
         backoffMs: 0,
       },
-      providerRetries: {
+      providerConfig: {
         gemini: {
-          maxAttempts: 4,
-          backoffMs: 0,
+          retry: {
+            maxAttempts: 4,
+            backoffMs: 0,
+          },
         },
       },
     },
@@ -345,6 +347,80 @@ test("runSearchFusion honors per-provider retry overrides", async () => {
   assert.deepEqual(payload.providersFailed, [{ provider: "brave", error: "temporary brave failure" }]);
   assert.equal(payload.providerRuns.find((run) => run.provider === "brave")?.attempts, 2);
   assert.equal(payload.providerRuns.find((run) => run.provider === "gemini")?.attempts, 4);
+});
+
+test("runSearchFusion passes providerConfig count overrides when request count is absent", async () => {
+  let seenCount: unknown;
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId, args }) => {
+        seenCount = args.count;
+        return {
+          provider: providerId ?? "gemini",
+          result: {
+            results: [{ title: "ok", url: `https://example.com/${providerId}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      countPerProvider: 5,
+      providerConfig: {
+        gemini: {
+          count: 2,
+        },
+      },
+    },
+    request: {
+      query: "provider count override",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(seenCount, 2);
+  assert.deepEqual(payload.providersSucceeded, ["gemini"]);
+});
+
+test("runSearchFusion still honors legacy providerRetries overrides", async () => {
+  let attempts = 0;
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        attempts += 1;
+        if (attempts < 4) {
+          throw new Error("temporary gemini failure");
+        }
+        return {
+          provider: providerId ?? "gemini",
+          result: {
+            results: [{ title: "ok", url: `https://example.com/${providerId}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 2,
+        backoffMs: 0,
+      },
+      providerRetries: {
+        gemini: {
+          maxAttempts: 4,
+          backoffMs: 0,
+        },
+      },
+    },
+    request: {
+      query: "legacy retry override",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(attempts, 4);
+  assert.deepEqual(payload.providersSucceeded, ["gemini"]);
+  assert.equal(payload.providerRuns[0]?.attempts, 4);
 });
 
 test("runSearchFusion does not retry non-retriable auth errors", async () => {

@@ -78,9 +78,62 @@
           }
         }
       },
+      "providerConfig": {
+        "type": "object",
+        "description": "Per-provider overrides keyed by provider id.",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Default result count for this provider when the request does not pass an explicit count."
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 120000,
+              "description": "Per-provider timeout override in milliseconds."
+            },
+            "retry": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Retry overrides for this provider.",
+              "properties": {
+                "maxAttempts": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10,
+                  "description": "Total attempts for this provider, including the first try."
+                },
+                "backoffMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 30000,
+                  "description": "Initial retry backoff for this provider in milliseconds."
+                },
+                "backoffMultiplier": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 10,
+                  "description": "Retry backoff multiplier for this provider."
+                },
+                "maxBackoffMs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 120000,
+                  "description": "Maximum retry backoff for this provider in milliseconds."
+                }
+              }
+            }
+          }
+        }
+      },
       "providerRetries": {
         "type": "object",
-        "description": "Per-provider retry overrides keyed by provider id.",
+        "description": "Deprecated alias for per-provider retry overrides. Prefer providerConfig.<provider>.retry.",
         "additionalProperties": {
           "type": "object",
           "additionalProperties": false,

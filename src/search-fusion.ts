@@ -5,6 +5,7 @@ import type {
   ProviderSelectionRequest,
   ResolvedProvider,
   SearchFusionConfig,
+  SearchFusionProviderConfig,
   SearchFusionRetryConfig,
   SearchRuntime,
 } from "./types.js";
@@ -27,6 +28,12 @@ type ResolvedRetryConfig = {
   maxBackoffMs: number;
 };
 
+type ResolvedProviderConfig = {
+  count: number;
+  timeoutMs: number;
+  retry: ResolvedRetryConfig;
+};
+
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
   return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig)
     ? (pluginConfig as SearchFusionConfig)
@@ -37,13 +44,55 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function resolveProviderConfig(
+  config: SearchFusionConfig,
+  providerId: string,
+): SearchFusionProviderConfig {
+  return config.providerConfig?.[providerId] ?? {};
+}
+
+function resolveRetryConfig(config: SearchFusionConfig, providerId: string): ResolvedRetryConfig {
+  const globalRetry = config.retry ?? {};
+  const legacyProviderRetry = config.providerRetries?.[providerId] ?? {};
+  const providerRetry = resolveProviderConfig(config, providerId).retry ?? {};
+  const merged: SearchFusionRetryConfig = {
+    ...globalRetry,
+    ...legacyProviderRetry,
+    ...providerRetry,
+  };
+
+  return {
+    maxAttempts: clamp(merged.maxAttempts ?? DEFAULT_RETRY_MAX_ATTEMPTS, 1, 10),
+    backoffMs: clamp(merged.backoffMs ?? DEFAULT_RETRY_BACKOFF_MS, 0, 30000),
+    backoffMultiplier: clamp(merged.backoffMultiplier ?? DEFAULT_RETRY_BACKOFF_MULTIPLIER, 1, 10),
+    maxBackoffMs: clamp(merged.maxBackoffMs ?? DEFAULT_RETRY_MAX_BACKOFF_MS, 0, 120000),
+  };
+}
+
+function resolveRuntimeProviderConfig(
+  request: ProviderSelectionRequest,
+  config: SearchFusionConfig,
+  providerId: string,
+): ResolvedProviderConfig {
+  const providerConfig = resolveProviderConfig(config, providerId);
+
+  return {
+    count: clamp(request.count ?? providerConfig.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER, 1, 10),
+    timeoutMs: clamp(providerConfig.timeoutMs ?? config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS, 1000, 120000),
+    retry: resolveRetryConfig(config, providerId),
+  };
+}
+
 function buildProviderArgs(
   request: ProviderSelectionRequest,
   config: SearchFusionConfig,
+  providerId: string,
 ): Record<string, unknown> {
+  const providerConfig = resolveRuntimeProviderConfig(request, config, providerId);
+
   return {
     query: request.query,
-    count: clamp(request.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER, 1, 10),
+    count: providerConfig.count,
     country: request.country,
     language: request.language,
     freshness: request.freshness,
@@ -95,22 +144,6 @@ function shouldRetry(errorMessage: string): boolean {
   ];
 
   return !nonRetriablePatterns.some((pattern) => pattern.test(errorMessage));
-}
-
-function resolveRetryConfig(config: SearchFusionConfig, providerId: string): ResolvedRetryConfig {
-  const globalRetry = config.retry ?? {};
-  const providerRetry = config.providerRetries?.[providerId] ?? {};
-  const merged: SearchFusionRetryConfig = {
-    ...globalRetry,
-    ...providerRetry,
-  };
-
-  return {
-    maxAttempts: clamp(merged.maxAttempts ?? DEFAULT_RETRY_MAX_ATTEMPTS, 1, 10),
-    backoffMs: clamp(merged.backoffMs ?? DEFAULT_RETRY_BACKOFF_MS, 0, 30000),
-    backoffMultiplier: clamp(merged.backoffMultiplier ?? DEFAULT_RETRY_BACKOFF_MULTIPLIER, 1, 10),
-    maxBackoffMs: clamp(merged.maxBackoffMs ?? DEFAULT_RETRY_MAX_BACKOFF_MS, 0, 120000),
-  };
 }
 
 function computeBackoffDelay(policy: ResolvedRetryConfig, attempt: number): number {
@@ -183,12 +216,17 @@ async function runProvider(params: {
   runtime: SearchRuntime;
   config: unknown;
   brokerConfig: SearchFusionConfig;
+  request: ProviderSelectionRequest;
   provider: ResolvedProvider;
-  args: Record<string, unknown>;
-  timeoutMs: number;
 }): Promise<ProviderRunResult> {
   const start = Date.now();
-  const retryPolicy = resolveRetryConfig(params.brokerConfig, params.provider.id);
+  const providerConfig = resolveRuntimeProviderConfig(
+    params.request,
+    params.brokerConfig,
+    params.provider.id,
+  );
+  const retryPolicy = providerConfig.retry;
+  const providerArgs = buildProviderArgs(params.request, params.brokerConfig, params.provider.id);
   const retryHistory: ProviderRunResult["retryHistory"] = [];
   let lastError: string | undefined;
   let lastRawPayload: Record<string, unknown> | undefined;
@@ -199,9 +237,9 @@ async function runProvider(params: {
         params.runtime.webSearch.search({
           config: params.config,
           providerId: params.provider.id,
-          args: params.args,
+          args: providerArgs,
         }),
-        params.timeoutMs,
+        providerConfig.timeoutMs,
         `Provider ${params.provider.id}`,
       );
 
@@ -313,13 +351,11 @@ export async function runSearchFusion(params: {
   }
 
   const start = Date.now();
-  const timeoutMs = clamp(brokerConfig.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS, 1000, 120000);
   const maxMergedResults = clamp(
     params.request.maxMergedResults ?? brokerConfig.maxMergedResults ?? DEFAULT_MAX_MERGED_RESULTS,
     1,
     50,
   );
-  const providerArgs = buildProviderArgs(params.request, brokerConfig);
 
   const providerRuns = await Promise.all(
     selectedProviders.map((provider) =>
@@ -327,9 +363,8 @@ export async function runSearchFusion(params: {
         runtime: params.runtime,
         config: params.config,
         brokerConfig,
+        request: params.request,
         provider,
-        args: providerArgs,
-        timeoutMs,
       }),
     ),
   );
