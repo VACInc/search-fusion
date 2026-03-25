@@ -20,12 +20,37 @@ test("normalizeProviderPayload maps structured results", () => {
   assert.equal(normalized.error, undefined);
   assert.equal(normalized.results.length, 1);
   assert.equal(normalized.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(normalized.results[0]?.originalUrl, "https://docs.openclaw.ai/tools/web?utm_source=test");
   assert.equal(normalized.results[0]?.title, "OpenClaw Docs");
   assert.equal(normalized.results[0]?.snippet, "Web search docs");
   assert.equal(normalized.results[0]?.snippetSource, "provider");
+  assert.deepEqual(normalized.results[0]?.flags, ["tracking-stripped"]);
   assert.deepEqual((normalized.results[0]?.rawItem as { extra?: { provider?: string } })?.extra, {
     provider: "brave",
   });
+});
+
+test("normalizeProviderPayload unwraps redirect wrappers without losing original URLs", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "duckduckgo",
+    payload: {
+      results: [
+        {
+          title: "Wrapped link",
+          url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Farticle%3Futm_source%3Dddg",
+          description: "Wrapped result",
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.results.length, 1);
+  assert.equal(normalized.results[0]?.url, "https://example.com/article");
+  assert.equal(
+    normalized.results[0]?.originalUrl,
+    "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Farticle%3Futm_source%3Dddg",
+  );
+  assert.deepEqual(normalized.results[0]?.flags, ["redirect-wrapper", "tracking-stripped"]);
 });
 
 test("normalizeProviderPayload preserves full answer content and citation details", () => {
@@ -49,6 +74,36 @@ test("normalizeProviderPayload preserves full answer content and citation detail
   assert.equal(normalized.results[0]?.sourceType, "citations");
   assert.equal(normalized.results[0]?.snippetSource, "answer-fallback");
   assert.equal(normalized.results[1]?.title, "GitHub");
+});
+
+test("normalizeProviderPayload tags sponsored/video/community items deterministically", () => {
+  const normalized = normalizeProviderPayload({
+    providerId: "tavily",
+    payload: {
+      results: [
+        {
+          title: "Ad result",
+          url: "https://example.com/ad",
+          description: "sponsor",
+          sponsored: true,
+        },
+        {
+          title: "Reddit thread",
+          url: "https://www.reddit.com/r/openclaw/comments/abc123/test/",
+          description: "community",
+        },
+        {
+          title: "Video review",
+          url: "https://www.youtube.com/watch?v=123",
+          description: "video",
+        },
+      ],
+    },
+  });
+
+  assert.deepEqual(normalized.results[0]?.flags, ["sponsored"]);
+  assert.deepEqual(normalized.results[1]?.flags, ["community"]);
+  assert.deepEqual(normalized.results[2]?.flags, ["video"]);
 });
 
 test("normalizeProviderPayload surfaces provider error when nothing usable returned", () => {

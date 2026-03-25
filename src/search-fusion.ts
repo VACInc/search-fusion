@@ -7,6 +7,7 @@ import type {
   SearchFusionConfig,
   SearchFusionProviderConfig,
   SearchFusionRetryConfig,
+  SearchResultFlag,
   SearchRuntime,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
@@ -77,8 +78,16 @@ function resolveRuntimeProviderConfig(
   const providerConfig = resolveProviderConfig(config, providerId);
 
   return {
-    count: clamp(request.count ?? providerConfig.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER, 1, 10),
-    timeoutMs: clamp(providerConfig.timeoutMs ?? config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS, 1000, 120000),
+    count: clamp(
+      request.count ?? providerConfig.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER,
+      1,
+      10,
+    ),
+    timeoutMs: clamp(
+      providerConfig.timeoutMs ?? config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      1000,
+      120000,
+    ),
     retry: resolveRetryConfig(config, providerId),
   };
 }
@@ -154,8 +163,29 @@ function computeBackoffDelay(policy: ResolvedRetryConfig, attempt: number): numb
   );
 }
 
+function mergeFlags(...flagLists: Array<readonly SearchResultFlag[]>): SearchResultFlag[] {
+  return [...new Set(flagLists.flatMap((flags) => [...flags]))].sort();
+}
+
+function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
+  let penalty = 0;
+  if (flags.includes("sponsored")) penalty += 0.65;
+  if (flags.includes("redirect-wrapper")) penalty += 0.1;
+  if (flags.includes("community")) penalty += 0.08;
+  if (flags.includes("video")) penalty += 0.08;
+  if (flags.includes("tracking-stripped")) penalty += 0.02;
+  return penalty;
+}
+
+function computeMergedScore(entry: Omit<FusionMergedResult, "score">): number {
+  const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
+  const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
+  const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
+  return Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - mergedFlagPenalty(entry.flags));
+}
+
 function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
-  const merged = new Map<string, FusionMergedResult>();
+  const merged = new Map<string, Omit<FusionMergedResult, "score">>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -169,7 +199,18 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
           siteName: item.siteName,
           providers: [item.providerId],
           providerCount: 1,
-          score: item.score,
+          bestRank: item.rawRank,
+          flags: [...item.flags],
+          rankings: [
+            {
+              providerId: item.providerId,
+              rawRank: item.rawRank,
+              score: item.score,
+              nativeScore: item.nativeScore,
+              sourceType: item.sourceType,
+              flags: [...item.flags],
+            },
+          ],
           variants: [item],
         });
         continue;
@@ -178,8 +219,18 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
       existing.variants.push(item);
       if (!existing.providers.includes(item.providerId)) {
         existing.providers.push(item.providerId);
-        existing.providerCount = existing.providers.length;
       }
+      existing.providerCount = existing.providers.length;
+      existing.bestRank = Math.min(existing.bestRank, item.rawRank);
+      existing.flags = mergeFlags(existing.flags, item.flags);
+      existing.rankings.push({
+        providerId: item.providerId,
+        rawRank: item.rawRank,
+        score: item.score,
+        nativeScore: item.nativeScore,
+        sourceType: item.sourceType,
+        flags: [...item.flags],
+      });
       if ((!existing.snippet || existing.snippet.length < (item.snippet?.length ?? 0)) && item.snippet) {
         existing.snippet = item.snippet;
       }
@@ -189,27 +240,33 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
       if (!existing.siteName && item.siteName) {
         existing.siteName = item.siteName;
       }
-      existing.score = Math.max(existing.score, item.score) + (existing.providerCount - 1) * 0.1;
     }
   }
 
   return [...merged.values()]
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
-      return a.title.localeCompare(b.title);
-    })
-    .slice(0, maxMergedResults)
     .map((entry) => ({
       ...entry,
       providers: [...entry.providers].sort(),
       providerCount: entry.providers.length,
-      variants: [...entry.variants].sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
+      flags: [...entry.flags].sort(),
+      rankings: [...entry.rankings].sort((a, b) => {
         if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
         return a.providerId.localeCompare(b.providerId);
       }),
-    }));
+      variants: [...entry.variants].sort((a, b) => {
+        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+        if (b.score !== a.score) return b.score - a.score;
+        return a.providerId.localeCompare(b.providerId);
+      }),
+      score: computeMergedScore(entry),
+    }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
+      if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, maxMergedResults);
 }
 
 async function runProvider(params: {
@@ -430,7 +487,10 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
     payload.results.forEach((result, index) => {
       lines.push(`${index + 1}. ${result.title}`);
       lines.push(`   ${result.url}`);
-      lines.push(`   Providers: ${result.providers.join(", ")}`);
+      lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
+      if (result.flags.length > 0) {
+        lines.push(`   Flags: ${result.flags.join(", ")}`);
+      }
       if (result.snippet) {
         lines.push(`   ${result.snippet}`);
       }

@@ -12,6 +12,21 @@ const TRACKING_PARAMS = new Set([
   "ref",
 ]);
 
+function maybeDecode(value: string | null): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export type UrlAnalysis = {
+  url: string;
+  originalUrl: string;
+  flags: string[];
+};
+
 export function asSingleLine(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -24,8 +39,8 @@ export function truncate(value: string, max = 220): string {
 
 export function stripExternalWrapper(content: string): string {
   let cleaned = content;
-  cleaned = cleaned.replace(/SECURITY NOTICE:[\s\S]*?(?=<<<[A-Z0-9_:-]+ id=\"[^\"]+\">>>)/g, "");
-  cleaned = cleaned.replace(/<<<[A-Z0-9_:-]+ id=\"[^\"]+\">>>/g, "");
+  cleaned = cleaned.replace(/SECURITY NOTICE:[\s\S]*?(?=<<<[A-Z0-9_:-]+ id="[^"]+">>>)/g, "");
+  cleaned = cleaned.replace(/<<<[A-Z0-9_:-]+ id="[^"]+">>>/g, "");
   const markerIndex = cleaned.indexOf("\n---\n");
   if (/\bSource:\b/.test(cleaned) && markerIndex >= 0) {
     cleaned = cleaned.slice(markerIndex + 5);
@@ -38,23 +53,78 @@ export function cleanProviderText(value: unknown): string {
   return asSingleLine(stripExternalWrapper(value));
 }
 
-export function canonicalizeUrl(rawUrl: string): string {
+function unwrapKnownRedirectUrl(rawUrl: string): { url: string; unwrapped: boolean } {
   try {
-    const parsed = new URL(rawUrl);
+    const parsed = new URL(rawUrl.trim());
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname;
+
+    if ((host === "duckduckgo.com" || host === "www.duckduckgo.com") && path.startsWith("/l/")) {
+      const uddg = maybeDecode(parsed.searchParams.get("uddg"));
+      if (uddg) return { url: uddg, unwrapped: true };
+    }
+
+    if (
+      ["www.google.com", "google.com", "l.google.com", "googleadservices.com", "www.googleadservices.com"].includes(host) &&
+      (path === "/url" || path === "/pagead/aclk")
+    ) {
+      const q = maybeDecode(parsed.searchParams.get("q")) ?? maybeDecode(parsed.searchParams.get("url")) ?? maybeDecode(parsed.searchParams.get("adurl"));
+      if (q) return { url: q, unwrapped: true };
+    }
+
+    if ((host === "l.facebook.com" || host === "lm.facebook.com") && path === "/l.php") {
+      const u = maybeDecode(parsed.searchParams.get("u"));
+      if (u) return { url: u, unwrapped: true };
+    }
+  } catch {
+    // ignore
+  }
+
+  return { url: rawUrl.trim(), unwrapped: false };
+}
+
+export function analyzeUrl(rawUrl: string): UrlAnalysis {
+  const originalUrl = rawUrl.trim();
+  const flags = new Set<string>();
+  const unwrapped = unwrapKnownRedirectUrl(originalUrl);
+  if (unwrapped.unwrapped) {
+    flags.add("redirect-wrapper");
+  }
+
+  try {
+    const parsed = new URL(unwrapped.url);
     parsed.hash = "";
+    let strippedTracking = false;
     for (const key of [...parsed.searchParams.keys()]) {
       if (TRACKING_PARAMS.has(key.toLowerCase())) {
         parsed.searchParams.delete(key);
+        strippedTracking = true;
       }
+    }
+    if (strippedTracking) {
+      flags.add("tracking-stripped");
     }
     parsed.hostname = parsed.hostname.toLowerCase();
     if (parsed.pathname !== "/") {
       parsed.pathname = parsed.pathname.replace(/\/$/, "");
     }
-    return parsed.toString();
+
+    return {
+      url: parsed.toString(),
+      originalUrl,
+      flags: [...flags].sort(),
+    };
   } catch {
-    return rawUrl.trim();
+    return {
+      url: unwrapped.url.trim(),
+      originalUrl,
+      flags: [...flags].sort(),
+    };
   }
+}
+
+export function canonicalizeUrl(rawUrl: string): string {
+  return analyzeUrl(rawUrl).url;
 }
 
 export function resolveSiteName(rawUrl: string): string | undefined {

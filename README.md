@@ -2,7 +2,7 @@
 
 Federated web search for OpenClaw.
 
-This plugin reuses the web search providers you already have configured, fans them out in parallel, merges duplicate URLs, and preserves which provider found what.
+This plugin reuses the web search providers you already have configured, fans them out in parallel, merges duplicate URLs, preserves which provider found what, and keeps the raw evidence attached.
 
 ## Requirements
 
@@ -27,6 +27,7 @@ Search Fusion is the orchestration layer:
 - merge duplicate URLs
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
+- expose native ranks, deterministic flags, and merged rankings
 - expose one clean result set back to the agent
 
 ## Install
@@ -50,7 +51,9 @@ Optional plugin config:
             "fast": ["brave"],
             "balanced": ["brave", "tavily"],
             "deep": ["brave", "tavily", "gemini"],
-            "cheap": ["duckduckgo", "brave"]
+            "cheap": ["duckduckgo", "brave"],
+            "results": ["brave", "tavily", "duckduckgo"],
+            "answers": ["gemini"]
           },
           "defaultMode": "balanced",
           "excludeProviders": ["grok"],
@@ -149,6 +152,8 @@ pnpm test
 - retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
+- surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
+- surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades

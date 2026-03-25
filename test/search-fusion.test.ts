@@ -88,7 +88,7 @@ function createRuntime(overrides?: {
                 results: [
                   {
                     title: "DuckDuckGo fallback docs",
-                    url: "https://duckduckgo.com/?q=openclaw+docs",
+                    url: "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.openclaw.ai%2Ftools%2Fweb%3Futm_source%3Dddg",
                     description: "Free-ish fallback search result",
                   },
                 ],
@@ -126,7 +126,7 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     pluginConfig: {},
     request: {
       query: "openclaw web docs",
-      providers: ["brave", "tavily"],
+      providers: ["brave", "tavily", "duckduckgo"],
     },
   });
 
@@ -135,15 +135,18 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   );
 
   assert.equal(payload.results.length, 2);
-  assert.deepEqual(mergedDocs?.providers, ["brave", "tavily"]);
-  assert.equal(mergedDocs?.variants.length, 2);
+  assert.deepEqual(mergedDocs?.providers, ["brave", "duckduckgo", "tavily"]);
+  assert.equal(mergedDocs?.bestRank, 1);
+  assert.equal(mergedDocs?.variants.length, 3);
+  assert.equal(mergedDocs?.rankings.length, 3);
+  assert.deepEqual(mergedDocs?.flags, ["redirect-wrapper", "tracking-stripped"]);
   assert.equal(
     (mergedDocs?.variants.find((variant) => variant.providerId === "brave")?.rawItem as {
       metadata?: { provider?: string };
     })?.metadata?.provider,
     "brave",
   );
-  assert.equal(payload.providersSucceeded.length, 2);
+  assert.equal(payload.providersSucceeded.length, 3);
 });
 
 test("runSearchFusion uses configured default providers and excludes itself", async () => {
@@ -233,6 +236,50 @@ test("runSearchFusion preserves full answer content and raw payloads for answer-
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
   assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+});
+
+test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        if (providerId === "brave") {
+          return {
+            provider: "brave",
+            result: {
+              results: [
+                {
+                  title: "Good docs",
+                  url: "https://docs.openclaw.ai/tools/web",
+                  description: "Official docs",
+                },
+                {
+                  title: "Ad result",
+                  url: "https://example.com/buy-now",
+                  description: "sponsored",
+                  sponsored: true,
+                },
+              ],
+            },
+          };
+        }
+        return {
+          provider: providerId ?? "tavily",
+          result: {
+            results: [{ title: "Other", url: `https://example.com/${providerId}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "quality ordering",
+      providers: ["brave"],
+    },
+  });
+
+  assert.equal(payload.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.deepEqual(payload.results[1]?.flags, ["sponsored"]);
 });
 
 test("runSearchFusion treats keyless providers like DuckDuckGo as configured", async () => {
@@ -379,6 +426,42 @@ test("runSearchFusion passes providerConfig count overrides when request count i
   });
 
   assert.equal(seenCount, 2);
+  assert.deepEqual(payload.providersSucceeded, ["gemini"]);
+});
+
+test("runSearchFusion passes providerConfig timeout overrides", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        if (providerId === "gemini") {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+        return {
+          provider: providerId ?? "gemini",
+          result: {
+            results: [{ title: "ok", url: `https://example.com/${providerId}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      providerTimeoutMs: 1000,
+      retry: {
+        maxAttempts: 1,
+      },
+      providerConfig: {
+        gemini: {
+          timeoutMs: 2000,
+        },
+      },
+    },
+    request: {
+      query: "provider timeout override",
+      providers: ["gemini"],
+    },
+  });
+
   assert.deepEqual(payload.providersSucceeded, ["gemini"]);
 });
 

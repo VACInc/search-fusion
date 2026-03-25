@@ -61,17 +61,29 @@ export type ResolvedProvider = {
   configured: boolean;
 };
 
+export type SearchResultFlag =
+  | "community"
+  | "redirect-wrapper"
+  | "sponsored"
+  | "tracking-stripped"
+  | "video";
+
+export type SearchResultSourceType = "results" | "citations" | "sources";
+
 export type NormalizedSearchResult = {
   title: string;
   url: string;
+  originalUrl: string;
   canonicalUrl: string;
   snippet?: string;
   siteName?: string;
   providerId: string;
   score: number;
+  nativeScore?: number;
   rawRank: number;
-  sourceType: "results" | "citations" | "sources";
+  sourceType: SearchResultSourceType;
   snippetSource?: "provider" | "answer-fallback";
+  flags: SearchResultFlag[];
   rawItem?: unknown;
 };
 
@@ -111,6 +123,15 @@ export type ProviderRunResult = {
   error?: string;
 };
 
+export type SearchResultRanking = {
+  providerId: string;
+  rawRank: number;
+  score: number;
+  nativeScore?: number;
+  sourceType: SearchResultSourceType;
+  flags: SearchResultFlag[];
+};
+
 export type FusionMergedResult = {
   title: string;
   url: string;
@@ -120,6 +141,9 @@ export type FusionMergedResult = {
   providers: string[];
   providerCount: number;
   score: number;
+  bestRank: number;
+  flags: SearchResultFlag[];
+  rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];
 };
 
