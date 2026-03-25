@@ -7,6 +7,7 @@ function createRuntime(overrides?: {
     id: string;
     label: string;
     configured?: boolean;
+    requiresCredential?: boolean;
     autoDetectOrder?: number;
   }>;
   search?: (params: { providerId?: string; args: Record<string, unknown> }) => Promise<{
@@ -20,6 +21,13 @@ function createRuntime(overrides?: {
       { id: "brave", label: "Brave", configured: true, autoDetectOrder: 10 },
       { id: "gemini", label: "Gemini", configured: true, autoDetectOrder: 20 },
       { id: "tavily", label: "Tavily", configured: true, autoDetectOrder: 30 },
+      {
+        id: "duckduckgo",
+        label: "DuckDuckGo",
+        configured: true,
+        requiresCredential: false,
+        autoDetectOrder: 100,
+      },
       { id: "search-fusion", label: "Search Fusion", configured: true, autoDetectOrder: 999 },
     ];
 
@@ -30,8 +38,14 @@ function createRuntime(overrides?: {
           id: provider.id,
           label: provider.label,
           autoDetectOrder: provider.autoDetectOrder,
+          requiresCredential: provider.requiresCredential,
           envVars: [],
-          getConfiguredCredentialValue: () => (provider.configured ? `${provider.id}-key` : undefined),
+          getConfiguredCredentialValue: () =>
+            provider.requiresCredential === false
+              ? undefined
+              : provider.configured
+                ? `${provider.id}-key`
+                : undefined,
           getCredentialValue: () => undefined,
         })),
       search:
@@ -46,6 +60,7 @@ function createRuntime(overrides?: {
                     title: "OpenClaw Docs",
                     url: "https://docs.openclaw.ai/tools/web?utm_source=brave",
                     description: "Provider one",
+                    metadata: { provider: "brave" },
                   },
                 ],
               },
@@ -56,10 +71,26 @@ function createRuntime(overrides?: {
             return {
               provider: "gemini",
               result: {
-                content: "A grounded summary.",
+                content:
+                  "A grounded summary that is long enough to survive preservation checks without getting confused with the short snippet fallback.",
                 citations: [
                   "https://docs.openclaw.ai/tools/web",
                   { url: "https://github.com/openclaw/openclaw", title: "GitHub" },
+                ],
+              },
+            };
+          }
+
+          if (providerId === "duckduckgo") {
+            return {
+              provider: "duckduckgo",
+              result: {
+                results: [
+                  {
+                    title: "DuckDuckGo fallback docs",
+                    url: "https://duckduckgo.com/?q=openclaw+docs",
+                    description: "Free-ish fallback search result",
+                  },
                 ],
               },
             };
@@ -73,6 +104,7 @@ function createRuntime(overrides?: {
                   title: "OpenClaw Web Docs",
                   url: "https://docs.openclaw.ai/tools/web",
                   description: "Provider two has a longer snippet",
+                  metadata: { provider: "tavily" },
                 },
                 {
                   title: "Plugin SDK",
@@ -87,7 +119,7 @@ function createRuntime(overrides?: {
   };
 }
 
-test("runSearchFusion merges duplicate URLs across providers", async () => {
+test("runSearchFusion merges duplicate URLs across providers and keeps provider variants", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,
     config: {},
@@ -104,6 +136,13 @@ test("runSearchFusion merges duplicate URLs across providers", async () => {
 
   assert.equal(payload.results.length, 2);
   assert.deepEqual(mergedDocs?.providers, ["brave", "tavily"]);
+  assert.equal(mergedDocs?.variants.length, 2);
+  assert.equal(
+    (mergedDocs?.variants.find((variant) => variant.providerId === "brave")?.rawItem as {
+      metadata?: { provider?: string };
+    })?.metadata?.provider,
+    "brave",
+  );
   assert.equal(payload.providersSucceeded.length, 2);
 });
 
@@ -152,7 +191,7 @@ test("runSearchFusion falls back to all configured providers when no defaults or
     },
   });
 
-  assert.deepEqual(payload.providersQueried, ["brave", "gemini", "tavily"]);
+  assert.deepEqual(payload.providersQueried, ["brave", "gemini", "tavily", "duckduckgo"]);
 });
 
 test("runSearchFusion throws on unknown explicit mode", async () => {
@@ -175,7 +214,7 @@ test("runSearchFusion throws on unknown explicit mode", async () => {
   );
 });
 
-test("runSearchFusion carries answer-style providers as digests and merged citation hits", async () => {
+test("runSearchFusion preserves full answer content and raw payloads for answer-style providers", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,
     config: {},
@@ -189,8 +228,150 @@ test("runSearchFusion carries answer-style providers as digests and merged citat
   assert.equal(payload.answers.length, 1);
   assert.equal(payload.answers[0]?.providerId, "gemini");
   assert.match(payload.answers[0]?.summary ?? "", /grounded summary/i);
+  assert.match(payload.answers[0]?.fullContent ?? "", /preservation checks/i);
+  assert.equal(payload.answers[0]?.citationDetails[1]?.title, "GitHub");
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
+  assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+});
+
+test("runSearchFusion treats keyless providers like DuckDuckGo as configured", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      providers: [
+        {
+          id: "duckduckgo",
+          label: "DuckDuckGo",
+          configured: true,
+          requiresCredential: false,
+          autoDetectOrder: 100,
+        },
+        { id: "search-fusion", label: "Search Fusion", configured: true, autoDetectOrder: 999 },
+      ],
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "free fallback",
+    },
+  });
+
+  assert.deepEqual(payload.configuredProviders, ["duckduckgo"]);
+  assert.deepEqual(payload.providersQueried, ["duckduckgo"]);
+  assert.deepEqual(payload.providersSucceeded, ["duckduckgo"]);
+});
+
+test("runSearchFusion retries transient failures with the default policy", async () => {
+  let attempts = 0;
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        attempts += 1;
+        if (providerId === "brave" && attempts < 3) {
+          throw new Error("temporary upstream failure");
+        }
+        return {
+          provider: providerId ?? "brave",
+          result: {
+            results: [{ title: "ok", url: `https://example.com/${providerId}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        backoffMs: 0,
+      },
+    },
+    request: {
+      query: "retry default",
+      providers: ["brave"],
+    },
+  });
+
+  assert.equal(attempts, 3);
+  assert.deepEqual(payload.providersSucceeded, ["brave"]);
+  assert.equal(payload.providerRuns[0]?.attempts, 3);
+  assert.equal(payload.providerRuns[0]?.retryHistory.length, 2);
+});
+
+test("runSearchFusion honors per-provider retry overrides", async () => {
+  const counts = new Map<string, number>();
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        const key = providerId ?? "unknown";
+        const current = (counts.get(key) ?? 0) + 1;
+        counts.set(key, current);
+
+        if (key === "brave" && current <= 2) {
+          throw new Error("temporary brave failure");
+        }
+        if (key === "gemini" && current <= 3) {
+          throw new Error("temporary gemini failure");
+        }
+
+        return {
+          provider: key,
+          result: {
+            results: [{ title: `${key} ok`, url: `https://example.com/${key}` }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 2,
+        backoffMs: 0,
+      },
+      providerRetries: {
+        gemini: {
+          maxAttempts: 4,
+          backoffMs: 0,
+        },
+      },
+    },
+    request: {
+      query: "retry override",
+      providers: ["brave", "gemini"],
+    },
+  });
+
+  assert.equal(counts.get("brave"), 2);
+  assert.equal(counts.get("gemini"), 4);
+  assert.deepEqual(payload.providersSucceeded, ["gemini"]);
+  assert.deepEqual(payload.providersFailed, [{ provider: "brave", error: "temporary brave failure" }]);
+  assert.equal(payload.providerRuns.find((run) => run.provider === "brave")?.attempts, 2);
+  assert.equal(payload.providerRuns.find((run) => run.provider === "gemini")?.attempts, 4);
+});
+
+test("runSearchFusion does not retry non-retriable auth errors", async () => {
+  let attempts = 0;
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async () => {
+        attempts += 1;
+        throw new Error("401 Unauthorized: invalid API key");
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 5,
+        backoffMs: 0,
+      },
+    },
+    request: {
+      query: "auth failure",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(attempts, 1);
+  assert.equal(payload.providerRuns[0]?.attempts, 1);
+  assert.deepEqual(payload.providersFailed, [{ provider: "gemini", error: "401 Unauthorized: invalid API key" }]);
 });
 
 test("runSearchFusion tolerates provider failures and reports them", async () => {
@@ -215,7 +396,11 @@ test("runSearchFusion tolerates provider failures and reports them", async () =>
       },
     }) as never,
     config: {},
-    pluginConfig: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 1,
+      },
+    },
     request: {
       query: "partial failure",
       providers: ["brave", "gemini", "tavily"],
@@ -249,7 +434,12 @@ test("runSearchFusion enforces per-provider timeouts", async () => {
       },
     }) as never,
     config: {},
-    pluginConfig: { providerTimeoutMs: 1000 },
+    pluginConfig: {
+      providerTimeoutMs: 1000,
+      retry: {
+        maxAttempts: 1,
+      },
+    },
     request: {
       query: "timeout",
       providers: ["brave", "gemini"],
@@ -261,7 +451,7 @@ test("runSearchFusion enforces per-provider timeouts", async () => {
   assert.match(payload.providersFailed[0]?.error ?? "", /timed out/i);
 });
 
-test("runSearchFusion honors request maxMergedResults", async () => {
+test("runSearchFusion honors request maxMergedResults without losing provider payloads", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,
     config: {},
@@ -274,4 +464,6 @@ test("runSearchFusion honors request maxMergedResults", async () => {
   });
 
   assert.equal(payload.results.length, 2);
+  assert.equal(payload.providerRuns.length, 3);
+  assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
 });

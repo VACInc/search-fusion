@@ -1,5 +1,12 @@
 export type SearchFusionModeMap = Record<string, string[]>;
 
+export type SearchFusionRetryConfig = {
+  maxAttempts?: number;
+  backoffMs?: number;
+  backoffMultiplier?: number;
+  maxBackoffMs?: number;
+};
+
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
@@ -8,6 +15,8 @@ export type SearchFusionConfig = {
   countPerProvider?: number;
   maxMergedResults?: number;
   providerTimeoutMs?: number;
+  retry?: SearchFusionRetryConfig;
+  providerRetries?: Record<string, SearchFusionRetryConfig>;
 };
 
 export type ProviderSelectionRequest = {
@@ -31,6 +40,7 @@ export type RuntimeWebSearchProvider = {
   label: string;
   hint?: string;
   autoDetectOrder?: number;
+  requiresCredential?: boolean;
   envVars?: readonly string[];
   getConfiguredCredentialValue?: (config?: unknown) => unknown;
   getCredentialValue?: (searchConfig?: Record<string, unknown> | undefined) => unknown;
@@ -54,12 +64,29 @@ export type NormalizedSearchResult = {
   score: number;
   rawRank: number;
   sourceType: "results" | "citations" | "sources";
+  snippetSource?: "provider" | "answer-fallback";
+  rawItem?: unknown;
+};
+
+export type ProviderAnswerCitation = {
+  url: string;
+  title?: string;
+  raw?: unknown;
 };
 
 export type ProviderAnswerDigest = {
   providerId: string;
   summary: string;
+  fullContent: string;
+  summaryTruncated: boolean;
   citations: string[];
+  citationDetails: ProviderAnswerCitation[];
+};
+
+export type ProviderRetryEvent = {
+  attempt: number;
+  error: string;
+  delayMs: number;
 };
 
 export type ProviderRunResult = {
@@ -69,8 +96,11 @@ export type ProviderRunResult = {
   ok: boolean;
   tookMs: number;
   rawCount: number;
+  attempts: number;
+  rawPayload?: Record<string, unknown>;
   results: NormalizedSearchResult[];
   answer?: ProviderAnswerDigest;
+  retryHistory: ProviderRetryEvent[];
   error?: string;
 };
 
@@ -83,6 +113,7 @@ export type FusionMergedResult = {
   providers: string[];
   providerCount: number;
   score: number;
+  variants: NormalizedSearchResult[];
 };
 
 export type SearchRuntime = {
@@ -110,8 +141,22 @@ export type FusionSearchPayload = {
     ok: boolean;
     tookMs: number;
     rawCount: number;
+    attempts: number;
     configured: boolean;
     error?: string;
+  }>;
+  providerRuns: Array<{
+    provider: string;
+    ok: boolean;
+    tookMs: number;
+    rawCount: number;
+    attempts: number;
+    configured: boolean;
+    error?: string;
+    answer?: ProviderAnswerDigest;
+    results: NormalizedSearchResult[];
+    rawPayload?: Record<string, unknown>;
+    retryHistory: ProviderRetryEvent[];
   }>;
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];

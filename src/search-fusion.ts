@@ -5,6 +5,7 @@ import type {
   ProviderSelectionRequest,
   ResolvedProvider,
   SearchFusionConfig,
+  SearchFusionRetryConfig,
   SearchRuntime,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
@@ -13,7 +14,18 @@ import { normalizeProviderPayload } from "./result-normalizer.js";
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
 const DEFAULT_PROVIDER_TIMEOUT_MS = 15000;
+const DEFAULT_RETRY_MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_BACKOFF_MS = 750;
+const DEFAULT_RETRY_BACKOFF_MULTIPLIER = 2;
+const DEFAULT_RETRY_MAX_BACKOFF_MS = 5000;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
+
+type ResolvedRetryConfig = {
+  maxAttempts: number;
+  backoffMs: number;
+  backoffMultiplier: number;
+  maxBackoffMs: number;
+};
 
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
   return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig)
@@ -25,7 +37,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function buildProviderArgs(request: ProviderSelectionRequest, config: SearchFusionConfig): Record<string, unknown> {
+function buildProviderArgs(
+  request: ProviderSelectionRequest,
+  config: SearchFusionConfig,
+): Record<string, unknown> {
   return {
     query: request.query,
     count: clamp(request.count ?? config.countPerProvider ?? DEFAULT_COUNT_PER_PROVIDER, 1, 10),
@@ -55,6 +70,57 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
+function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function asErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function shouldRetry(errorMessage: string): boolean {
+  const nonRetriablePatterns = [
+    /401\b/,
+    /403\b/,
+    /400\b/,
+    /unauthorized/i,
+    /forbidden/i,
+    /invalid api key/i,
+    /api key/i,
+    /credential/i,
+    /unknown provider/i,
+    /unsupported/i,
+    /bad request/i,
+  ];
+
+  return !nonRetriablePatterns.some((pattern) => pattern.test(errorMessage));
+}
+
+function resolveRetryConfig(config: SearchFusionConfig, providerId: string): ResolvedRetryConfig {
+  const globalRetry = config.retry ?? {};
+  const providerRetry = config.providerRetries?.[providerId] ?? {};
+  const merged: SearchFusionRetryConfig = {
+    ...globalRetry,
+    ...providerRetry,
+  };
+
+  return {
+    maxAttempts: clamp(merged.maxAttempts ?? DEFAULT_RETRY_MAX_ATTEMPTS, 1, 10),
+    backoffMs: clamp(merged.backoffMs ?? DEFAULT_RETRY_BACKOFF_MS, 0, 30000),
+    backoffMultiplier: clamp(merged.backoffMultiplier ?? DEFAULT_RETRY_BACKOFF_MULTIPLIER, 1, 10),
+    maxBackoffMs: clamp(merged.maxBackoffMs ?? DEFAULT_RETRY_MAX_BACKOFF_MS, 0, 120000),
+  };
+}
+
+function computeBackoffDelay(policy: ResolvedRetryConfig, attempt: number): number {
+  if (policy.backoffMs <= 0) return 0;
+  return Math.min(
+    policy.maxBackoffMs,
+    Math.round(policy.backoffMs * Math.pow(policy.backoffMultiplier, Math.max(0, attempt - 1))),
+  );
+}
+
 function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
   const merged = new Map<string, FusionMergedResult>();
 
@@ -71,10 +137,12 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
           providers: [item.providerId],
           providerCount: 1,
           score: item.score,
+          variants: [item],
         });
         continue;
       }
 
+      existing.variants.push(item);
       if (!existing.providers.includes(item.providerId)) {
         existing.providers.push(item.providerId);
         existing.providerCount = existing.providers.length;
@@ -103,56 +171,101 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
       ...entry,
       providers: [...entry.providers].sort(),
       providerCount: entry.providers.length,
+      variants: [...entry.variants].sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+        return a.providerId.localeCompare(b.providerId);
+      }),
     }));
 }
 
 async function runProvider(params: {
   runtime: SearchRuntime;
   config: unknown;
+  brokerConfig: SearchFusionConfig;
   provider: ResolvedProvider;
   args: Record<string, unknown>;
   timeoutMs: number;
 }): Promise<ProviderRunResult> {
   const start = Date.now();
-  try {
-    const response: { provider: string; result: Record<string, unknown> } = await withTimeout(
-      params.runtime.webSearch.search({
-        config: params.config,
+  const retryPolicy = resolveRetryConfig(params.brokerConfig, params.provider.id);
+  const retryHistory: ProviderRunResult["retryHistory"] = [];
+  let lastError: string | undefined;
+  let lastRawPayload: Record<string, unknown> | undefined;
+
+  for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
+    try {
+      const response: { provider: string; result: Record<string, unknown> } = await withTimeout(
+        params.runtime.webSearch.search({
+          config: params.config,
+          providerId: params.provider.id,
+          args: params.args,
+        }),
+        params.timeoutMs,
+        `Provider ${params.provider.id}`,
+      );
+
+      lastRawPayload = response.result;
+      const normalized = normalizeProviderPayload({
         providerId: params.provider.id,
-        args: params.args,
-      }),
-      params.timeoutMs,
-      `Provider ${params.provider.id}`,
-    );
+        payload: response.result,
+      });
 
-    const normalized = normalizeProviderPayload({
-      providerId: params.provider.id,
-      payload: response.result,
-    });
+      if (normalized.error) {
+        throw new Error(normalized.error);
+      }
 
-    return {
-      providerId: params.provider.id,
-      label: params.provider.label,
-      configured: params.provider.configured,
-      ok: !normalized.error,
-      tookMs: Date.now() - start,
-      rawCount: normalized.results.length,
-      results: normalized.results,
-      answer: normalized.answer,
-      error: normalized.error,
-    };
-  } catch (error) {
-    return {
-      providerId: params.provider.id,
-      label: params.provider.label,
-      configured: params.provider.configured,
-      ok: false,
-      tookMs: Date.now() - start,
-      rawCount: 0,
-      results: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
+      return {
+        providerId: params.provider.id,
+        label: params.provider.label,
+        configured: params.provider.configured,
+        ok: true,
+        tookMs: Date.now() - start,
+        rawCount: normalized.results.length,
+        attempts: attempt,
+        rawPayload: response.result,
+        results: normalized.results,
+        answer: normalized.answer,
+        retryHistory,
+      };
+    } catch (error) {
+      lastError = asErrorMessage(error);
+      const canRetry = attempt < retryPolicy.maxAttempts && shouldRetry(lastError);
+      if (!canRetry) {
+        return {
+          providerId: params.provider.id,
+          label: params.provider.label,
+          configured: params.provider.configured,
+          ok: false,
+          tookMs: Date.now() - start,
+          rawCount: 0,
+          attempts: attempt,
+          rawPayload: lastRawPayload,
+          results: [],
+          retryHistory,
+          error: lastError,
+        };
+      }
+
+      const delayMs = computeBackoffDelay(retryPolicy, attempt);
+      retryHistory.push({ attempt, error: lastError, delayMs });
+      await sleep(delayMs);
+    }
   }
+
+  return {
+    providerId: params.provider.id,
+    label: params.provider.label,
+    configured: params.provider.configured,
+    ok: false,
+    tookMs: Date.now() - start,
+    rawCount: 0,
+    attempts: retryPolicy.maxAttempts,
+    rawPayload: lastRawPayload,
+    results: [],
+    retryHistory,
+    error: lastError ?? "Unknown error",
+  };
 }
 
 export async function runSearchFusion(params: {
@@ -180,11 +293,14 @@ export async function runSearchFusion(params: {
       provider: SEARCH_FUSION_PROVIDER_ID,
       tookMs: 0,
       count: 0,
-      configuredProviders: availableProviders.filter((provider) => provider.configured).map((provider) => provider.id),
+      configuredProviders: availableProviders
+        .filter((provider) => provider.configured)
+        .map((provider) => provider.id),
       providersQueried: [],
       providersSucceeded: [],
       providersFailed: [],
       providerDetails: [],
+      providerRuns: [],
       answers: [],
       results: [],
       externalContent: {
@@ -197,11 +313,7 @@ export async function runSearchFusion(params: {
   }
 
   const start = Date.now();
-  const timeoutMs = clamp(
-    brokerConfig.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
-    1000,
-    120000,
-  );
+  const timeoutMs = clamp(brokerConfig.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS, 1000, 120000);
   const maxMergedResults = clamp(
     params.request.maxMergedResults ?? brokerConfig.maxMergedResults ?? DEFAULT_MAX_MERGED_RESULTS,
     1,
@@ -214,6 +326,7 @@ export async function runSearchFusion(params: {
       runProvider({
         runtime: params.runtime,
         config: params.config,
+        brokerConfig,
         provider,
         args: providerArgs,
         timeoutMs,
@@ -242,8 +355,22 @@ export async function runSearchFusion(params: {
       ok: run.ok,
       tookMs: run.tookMs,
       rawCount: run.rawCount,
+      attempts: run.attempts,
       configured: run.configured,
       error: run.error,
+    })),
+    providerRuns: providerRuns.map((run) => ({
+      provider: run.providerId,
+      ok: run.ok,
+      tookMs: run.tookMs,
+      rawCount: run.rawCount,
+      attempts: run.attempts,
+      configured: run.configured,
+      error: run.error,
+      answer: run.answer,
+      results: run.results,
+      rawPayload: run.rawPayload,
+      retryHistory: run.retryHistory,
     })),
     answers,
     results: mergedResults,
@@ -292,8 +419,9 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
     if (!includeFailures && !detail.ok) {
       continue;
     }
+    const attemptText = detail.attempts > 1 ? `, ${detail.attempts} attempts` : "";
     lines.push(
-      `- ${detail.provider}: ${detail.ok ? `ok (${detail.rawCount} hits, ${detail.tookMs}ms)` : `failed (${detail.tookMs}ms)${detail.error ? ` — ${detail.error}` : ""}`}`,
+      `- ${detail.provider}: ${detail.ok ? `ok (${detail.rawCount} hits, ${detail.tookMs}ms${attemptText})` : `failed (${detail.tookMs}ms${attemptText})${detail.error ? ` — ${detail.error}` : ""}`}`,
     );
   }
 

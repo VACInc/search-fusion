@@ -11,6 +11,7 @@ test("normalizeProviderPayload maps structured results", () => {
           title: "OpenClaw Docs",
           url: "https://docs.openclaw.ai/tools/web?utm_source=test",
           description: "Web search docs",
+          extra: { provider: "brave" },
         },
       ],
     },
@@ -21,21 +22,32 @@ test("normalizeProviderPayload maps structured results", () => {
   assert.equal(normalized.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
   assert.equal(normalized.results[0]?.title, "OpenClaw Docs");
   assert.equal(normalized.results[0]?.snippet, "Web search docs");
+  assert.equal(normalized.results[0]?.snippetSource, "provider");
+  assert.deepEqual((normalized.results[0]?.rawItem as { extra?: { provider?: string } })?.extra, {
+    provider: "brave",
+  });
 });
 
-test("normalizeProviderPayload extracts answer-backed citations", () => {
+test("normalizeProviderPayload preserves full answer content and citation details", () => {
   const normalized = normalizeProviderPayload({
     providerId: "gemini",
     payload: {
-      content: "SECURITY NOTICE: ignored\n\n<<<EXTERNAL_CONTENT_START id=\"1\">>>\nSource: Web Search\n---\nA synthetic answer about OpenClaw.\n<<<EXTERNAL_CONTENT_END id=\"1\">>>",
-      citations: ["https://docs.openclaw.ai/", { url: "https://github.com/openclaw/openclaw", title: "GitHub" }],
+      content:
+        "SECURITY NOTICE: ignored\n\n<<<EXTERNAL_CONTENT_START id=\"1\">>>\nSource: Web Search\n---\nA synthetic answer about OpenClaw that is deliberately long enough to force truncation in the summary layer while keeping the full content intact for downstream consumers.\n<<<EXTERNAL_CONTENT_END id=\"1\">>>",
+      citations: [
+        "https://docs.openclaw.ai/",
+        { url: "https://github.com/openclaw/openclaw", title: "GitHub" },
+      ],
     },
   });
 
   assert.equal(normalized.answer?.providerId, "gemini");
   assert.match(normalized.answer?.summary ?? "", /synthetic answer/i);
+  assert.match(normalized.answer?.fullContent ?? "", /full content intact/i);
+  assert.equal(normalized.answer?.citationDetails[1]?.title, "GitHub");
   assert.equal(normalized.results.length, 2);
   assert.equal(normalized.results[0]?.sourceType, "citations");
+  assert.equal(normalized.results[0]?.snippetSource, "answer-fallback");
   assert.equal(normalized.results[1]?.title, "GitHub");
 });
 
@@ -86,6 +98,7 @@ test("normalizeProviderPayload handles answer-first providers like Kimi/Grok/Per
   });
 
   assert.equal(normalized.answer?.providerId, "kimi");
+  assert.equal(normalized.answer?.fullContent, "Grounded synthesis about OpenClaw search.");
   assert.equal(normalized.results.length, 2);
   assert.ok(normalized.results.every((result) => result.sourceType === "citations"));
 });

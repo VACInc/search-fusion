@@ -46,6 +46,71 @@
         "minimum": 1000,
         "maximum": 120000,
         "description": "Per-provider timeout when federating requests."
+      },
+      "retry": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Global retry policy for provider calls. maxAttempts is total attempts including the first try.",
+        "properties": {
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Total attempts per provider call, including the first try. Defaults to 3."
+          },
+          "backoffMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000,
+            "description": "Initial retry backoff in milliseconds. Defaults to 750."
+          },
+          "backoffMultiplier": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Multiplier applied to each subsequent retry backoff. Defaults to 2."
+          },
+          "maxBackoffMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120000,
+            "description": "Maximum retry backoff delay in milliseconds. Defaults to 5000."
+          }
+        }
+      },
+      "providerRetries": {
+        "type": "object",
+        "description": "Per-provider retry overrides keyed by provider id.",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Total attempts for this provider, including the first try."
+            },
+            "backoffMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30000,
+              "description": "Initial retry backoff for this provider in milliseconds."
+            },
+            "backoffMultiplier": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10,
+              "description": "Retry backoff multiplier for this provider."
+            },
+            "maxBackoffMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 120000,
+              "description": "Maximum retry backoff for this provider in milliseconds."
+            }
+          }
+        }
       }
     }
   }

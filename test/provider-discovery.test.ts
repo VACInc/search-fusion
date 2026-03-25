@@ -28,6 +28,15 @@ const providers = [
     getCredentialValue: () => undefined,
   },
   {
+    id: "duckduckgo",
+    label: "DuckDuckGo",
+    autoDetectOrder: 100,
+    requiresCredential: false,
+    envVars: [],
+    getConfiguredCredentialValue: () => undefined,
+    getCredentialValue: () => undefined,
+  },
+  {
     id: "search-fusion",
     label: "Search Fusion",
     autoDetectOrder: 999,
@@ -54,6 +63,7 @@ test("discoverProviders excludes self and marks configured providers", () => {
       { id: "brave", configured: true },
       { id: "tavily", configured: false },
       { id: "gemini", configured: true },
+      { id: "duckduckgo", configured: true },
     ],
   );
 });
@@ -64,7 +74,29 @@ test("resolveSelectedProviders falls back to configured providers by default", (
     config: {},
   });
 
-  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini"]);
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini", "duckduckgo"]);
+});
+
+test("resolveSelectedProviders keeps keyless providers in the default pool", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: [
+      {
+        id: "duckduckgo",
+        label: "DuckDuckGo",
+        autoDetectOrder: 100,
+        configured: true,
+      },
+      {
+        id: "tavily",
+        label: "Tavily",
+        autoDetectOrder: 20,
+        configured: false,
+      },
+    ],
+    config: {},
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["duckduckgo"]);
 });
 
 test("resolveSelectedProviders honors explicit all and exclusions", () => {
@@ -74,7 +106,7 @@ test("resolveSelectedProviders honors explicit all and exclusions", () => {
     config: { excludeProviders: ["brave"] },
   });
 
-  assert.deepEqual(selected.map((provider) => provider.id), ["gemini"]);
+  assert.deepEqual(selected.map((provider) => provider.id), ["gemini", "duckduckgo"]);
 });
 
 test("resolveSelectedProviders honors explicit mode", () => {

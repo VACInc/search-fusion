@@ -23,8 +23,10 @@ OpenClaw already has solid search providers. The missing piece was orchestration
 Search Fusion is the orchestration layer:
 - discover configured providers
 - run them in parallel
+- retry transient provider failures with configurable policy
 - merge duplicate URLs
 - keep provider attribution intact
+- preserve raw provider payloads and per-provider merged variants
 - expose one clean result set back to the agent
 
 ## Install
@@ -47,13 +49,26 @@ Optional plugin config:
           "modes": {
             "fast": ["brave"],
             "balanced": ["brave", "tavily"],
-            "deep": ["brave", "tavily", "gemini"]
+            "deep": ["brave", "tavily", "gemini"],
+            "cheap": ["duckduckgo", "brave"]
           },
           "defaultMode": "balanced",
           "excludeProviders": ["grok"],
           "countPerProvider": 5,
           "maxMergedResults": 10,
-          "providerTimeoutMs": 15000
+          "providerTimeoutMs": 15000,
+          "retry": {
+            "maxAttempts": 3,
+            "backoffMs": 750,
+            "backoffMultiplier": 2,
+            "maxBackoffMs": 5000
+          },
+          "providerRetries": {
+            "gemini": {
+              "maxAttempts": 4,
+              "backoffMs": 1500
+            }
+          }
         }
       }
     }
@@ -123,9 +138,13 @@ pnpm test
 
 - no hardcoded modes; users define modes in config if they want them
 - falls back to all configured providers when nothing else is specified
+- treats keyless providers (for example DuckDuckGo) as configured/available
 - excludes itself to avoid recursion
 - dedupes by canonical URL
-- carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests plus citation-derived hits
+- retries transient provider failures with global defaults and per-provider overrides
+- preserves raw provider payloads in `providerRuns[]`
+- preserves per-provider merged variants in `results[].variants[]`
+- carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades
 

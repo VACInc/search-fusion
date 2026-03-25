@@ -1,8 +1,14 @@
-import type { NormalizedSearchResult, ProviderAnswerDigest } from "./types.js";
+import type {
+  NormalizedSearchResult,
+  ProviderAnswerCitation,
+  ProviderAnswerDigest,
+} from "./types.js";
 import { canonicalizeUrl, cleanProviderText, resolveSiteName, truncate } from "./text.js";
 
 function asObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function firstString(obj: Record<string, unknown> | null, keys: string[]): string | undefined {
@@ -42,52 +48,75 @@ function mapResultArray(params: {
   fallbackSnippet?: string;
 }): NormalizedSearchResult[] {
   const mapped: Array<NormalizedSearchResult | null> = params.items.map((item, index) => {
-      const stringItem = typeof item === "string" ? item.trim() : "";
-      const obj = asObject(item);
-      const url = stringItem || firstString(obj, ["url", "link", "href"]);
-      if (!url) return null;
+    const stringItem = typeof item === "string" ? item.trim() : "";
+    const obj = asObject(item);
+    const url = stringItem || firstString(obj, ["url", "link", "href"]);
+    if (!url) return null;
 
-      const title =
-        firstString(obj, ["title", "name", "headline", "label"]) ?? titleFromUrl(url);
-      const snippet =
-        cleanProviderText(
-          firstString(obj, ["description", "snippet", "content", "body", "text", "summary"]),
-        ) || (params.fallbackSnippet ? truncate(params.fallbackSnippet) : undefined);
-      const score = firstNumber(obj, ["score", "confidence", "relevance"]) ?? Math.max(0.1, 1 - index * 0.05);
+    const title = firstString(obj, ["title", "name", "headline", "label"]) ?? titleFromUrl(url);
+    const providerSnippet = cleanProviderText(
+      firstString(obj, ["description", "snippet", "content", "body", "text", "summary"]),
+    );
+    const snippet = providerSnippet || (params.fallbackSnippet ? truncate(params.fallbackSnippet) : undefined);
+    const score =
+      firstNumber(obj, ["score", "confidence", "relevance"]) ?? Math.max(0.1, 1 - index * 0.05);
 
-      return {
-        title,
-        url,
-        canonicalUrl: canonicalizeUrl(url),
-        snippet,
-        siteName: firstString(obj, ["siteName", "site", "domain"]) ?? resolveSiteName(url),
-        providerId: params.providerId,
-        score,
-        rawRank: index + 1,
-        sourceType: params.sourceType,
-      } satisfies NormalizedSearchResult;
-    });
+    return {
+      title,
+      url,
+      canonicalUrl: canonicalizeUrl(url),
+      snippet,
+      siteName: firstString(obj, ["siteName", "site", "domain"]) ?? resolveSiteName(url),
+      providerId: params.providerId,
+      score,
+      rawRank: index + 1,
+      sourceType: params.sourceType,
+      snippetSource: providerSnippet ? "provider" : params.fallbackSnippet ? "answer-fallback" : undefined,
+      rawItem: item,
+    } satisfies NormalizedSearchResult;
+  });
 
   return mapped.flatMap((result) => (result ? [result] : []));
 }
 
-export function extractProviderAnswer(payload: Record<string, unknown>, providerId: string): ProviderAnswerDigest | undefined {
-  const content = cleanProviderText(payload.content ?? payload.answer);
-  if (!content) return undefined;
+function buildCitationDetails(citationsRaw: unknown[]): ProviderAnswerCitation[] {
+  return citationsRaw.flatMap<ProviderAnswerCitation>((entry) => {
+    if (typeof entry === "string") {
+      const url = entry.trim();
+      return url ? [{ url, raw: entry }] : [];
+    }
+
+    const obj = asObject(entry);
+    const url = firstString(obj, ["url", "link", "href"]);
+    if (!url) return [];
+
+    return [
+      {
+        url,
+        title: firstString(obj, ["title", "name", "headline", "label"]),
+        raw: entry,
+      } satisfies ProviderAnswerCitation,
+    ];
+  });
+}
+
+export function extractProviderAnswer(
+  payload: Record<string, unknown>,
+  providerId: string,
+): ProviderAnswerDigest | undefined {
+  const fullContent = cleanProviderText(payload.content ?? payload.answer);
+  if (!fullContent) return undefined;
 
   const citationsRaw = Array.isArray(payload.citations) ? payload.citations : [];
-  const citations = citationsRaw
-    .map((entry) => {
-      if (typeof entry === "string") return entry.trim();
-      const obj = asObject(entry);
-      return firstString(obj, ["url", "link", "href"]);
-    })
-    .filter((entry): entry is string => Boolean(entry));
+  const citationDetails = buildCitationDetails(citationsRaw);
 
   return {
     providerId,
-    summary: truncate(content, 320),
-    citations,
+    summary: truncate(fullContent, 320),
+    fullContent,
+    summaryTruncated: fullContent.length > 320,
+    citations: citationDetails.map((entry) => entry.url),
+    citationDetails,
   };
 }
 
@@ -110,7 +139,7 @@ export function normalizeProviderPayload(params: {
         items: topLevelResults,
         providerId: params.providerId,
         sourceType: "results",
-        fallbackSnippet: answer?.summary,
+        fallbackSnippet: answer?.fullContent,
       }),
     );
   }
@@ -122,7 +151,7 @@ export function normalizeProviderPayload(params: {
         items: topLevelSources,
         providerId: params.providerId,
         sourceType: "sources",
-        fallbackSnippet: answer?.summary,
+        fallbackSnippet: answer?.fullContent,
       }),
     );
   }
@@ -136,7 +165,7 @@ export function normalizeProviderPayload(params: {
         items: nestedWebResults,
         providerId: params.providerId,
         sourceType: "results",
-        fallbackSnippet: answer?.summary,
+        fallbackSnippet: answer?.fullContent,
       }),
     );
   }
@@ -148,7 +177,7 @@ export function normalizeProviderPayload(params: {
         items: citations,
         providerId: params.providerId,
         sourceType: "citations",
-        fallbackSnippet: answer?.summary,
+        fallbackSnippet: answer?.fullContent,
       }),
     );
   }
@@ -156,9 +185,10 @@ export function normalizeProviderPayload(params: {
   const errorParts = [payload.error, payload.message]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .map((value) => value.trim());
-  const error = errorParts.length > 0 && resultArrays.length === 0 && !answer
-    ? errorParts.join(": ")
-    : undefined;
+  const error =
+    errorParts.length > 0 && resultArrays.length === 0 && !answer
+      ? errorParts.join(": ")
+      : undefined;
 
   return { results: resultArrays, answer, error };
 }

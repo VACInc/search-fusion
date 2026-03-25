@@ -47,6 +47,10 @@ function resolveModeProviders(params: {
 }
 
 export function isProviderConfigured(provider: RuntimeWebSearchProvider, config: unknown): boolean {
+  if (provider.requiresCredential === false) {
+    return true;
+  }
+
   try {
     if (hasValue(provider.getConfiguredCredentialValue?.(config))) {
       return true;
