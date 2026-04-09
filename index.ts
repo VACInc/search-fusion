@@ -8,7 +8,7 @@ const SearchFusionParameters = Type.Object(
   {
     query: Type.String({ description: "Search query string." }),
     mode: Type.Optional(
-      Type.String({ description: "Optional user-defined mode name from Search Fusion config (for example fast, balanced, deep, or a custom mode)." }),
+      Type.String({ description: "Optional mode name. Uses configured modes, or built-in starter modes (fast, balanced, deep) when custom modes are not set." }),
     ),
     providers: Type.Optional(
       Type.Array(

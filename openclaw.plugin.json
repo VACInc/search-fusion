@@ -15,7 +15,7 @@
     "properties": {
       "defaultMode": {
         "type": "string",
-        "description": "Optional default mode name to use when a request omits both providers and mode."
+        "description": "Optional default mode name to use when a request omits both providers and mode. Resolves against custom modes, or built-in starter modes when custom modes are absent."
       },
       "modes": {
         "type": "object",
@@ -23,7 +23,7 @@
           "type": "array",
           "items": { "type": "string" }
         },
-        "description": "User-defined mode map. Each key is a mode name and each value is a provider id list."
+        "description": "User-defined mode map. Each key is a mode name and each value is a provider id list. When omitted, starter modes are auto-generated: fast (1 provider), balanced (2 providers), deep (all providers)."
       },
       "defaultProviders": {
         "type": "array",

@@ -83,9 +83,16 @@ Optional plugin config:
 }
 ```
 
+If `modes` is omitted, Search Fusion auto-generates starter modes from discovered providers:
+- `fast` → first configured provider (or first available provider if nothing is configured)
+- `balanced` → first two configured providers (or first two available)
+- `deep` → all configured providers (or all available)
+
+If you set `modes`, your map is treated as authoritative and replaces those starter defaults.
+
 Resolution order:
 - explicit `providers`
-- explicit `mode`
+- explicit `mode` (from custom modes, or starter modes when custom modes are absent)
 - configured `defaultMode`
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
@@ -118,7 +125,7 @@ Example prompt:
 
 Supported arguments:
 - `query`
-- `mode` — user-defined mode name from plugin config
+- `mode` — mode name from configured modes, or starter modes (`fast`, `balanced`, `deep`) when custom modes are not set
 - `providers` — provider ids, or `all`
 - `count`
 - `maxMergedResults`
@@ -170,7 +177,8 @@ pnpm test
 
 ## Current behavior
 
-- no hardcoded modes; users define modes in config if they want them
+- starter modes are built in for fresh installs (`fast`, `balanced`, `deep`) when `modes` is not configured
+- custom `modes` are authoritative and replace the starter map
 - falls back to all configured providers when nothing else is specified
 - treats keyless providers (for example DuckDuckGo) as configured/available
 - excludes itself to avoid recursion

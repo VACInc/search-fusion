@@ -244,6 +244,20 @@ test("runSearchFusion honors explicit request mode", async () => {
   assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
 });
 
+test("runSearchFusion provides built-in starter modes when custom modes are absent", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw",
+      mode: "balanced",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave", "gemini"]);
+});
+
 test("runSearchFusion falls back to all configured providers when no defaults or mode are set", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,
@@ -255,6 +269,26 @@ test("runSearchFusion falls back to all configured providers when no defaults or
   });
 
   assert.deepEqual(payload.providersQueried, ["brave", "gemini", "tavily", "duckduckgo"]);
+});
+
+test("runSearchFusion treats custom modes as authoritative", async () => {
+  await assert.rejects(
+    async () =>
+      await runSearchFusion({
+        runtime: createRuntime() as never,
+        config: {},
+        pluginConfig: {
+          modes: {
+            custom: ["brave"],
+          },
+        },
+        request: {
+          query: "openclaw",
+          mode: "balanced",
+        },
+      }),
+    /Unknown Search Fusion mode: balanced/,
+  );
 });
 
 test("runSearchFusion throws on unknown explicit mode", async () => {
