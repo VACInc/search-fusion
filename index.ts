@@ -15,6 +15,15 @@ const SearchFusionParameters = Type.Object(
         Type.String({ description: "Provider id, or use 'all' / '*' to fan out to every configured provider." }),
       ),
     ),
+    maxCostTier: Type.Optional(
+      Type.Union(
+        [Type.Literal("cheap"), Type.Literal("standard"), Type.Literal("premium")],
+        {
+          description:
+            "Optional cost cap for provider routing. cheap uses low-cost providers, standard allows cheap+standard, premium allows all tiers.",
+        },
+      ),
+    ),
     count: Type.Optional(
       Type.Number({
         description: "Number of results to request from each provider (1-10).",

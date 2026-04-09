@@ -626,3 +626,47 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.equal(payload.providerRuns.length, 3);
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
 });
+
+test("runSearchFusion applies maxCostTier filtering and cheap-first provider ordering", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      providerCostTiers: {
+        brave: "standard",
+        gemini: "premium",
+        tavily: "standard",
+        duckduckgo: "cheap",
+      },
+    },
+    request: {
+      query: "cost-aware routing",
+      maxCostTier: "standard",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["duckduckgo", "brave", "tavily"]);
+  assert.deepEqual(payload.providersSucceeded, ["duckduckgo", "brave", "tavily"]);
+});
+
+test("runSearchFusion uses defaultMaxCostTier and falls back to the cheapest available tier", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      defaultMaxCostTier: "cheap",
+      providerCostTiers: {
+        brave: "standard",
+        gemini: "premium",
+        tavily: "premium",
+        duckduckgo: "premium",
+      },
+    },
+    request: {
+      query: "budget fallback",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave"]);
+  assert.deepEqual(payload.providersSucceeded, ["brave"]);
+});

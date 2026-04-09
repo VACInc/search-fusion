@@ -154,3 +154,51 @@ test("resolveSelectedProviders throws on unknown explicit mode", () => {
     /Unknown Search Fusion mode: chaos/,
   );
 });
+
+test("resolveSelectedProviders applies request maxCostTier filtering", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMaxCostTier: "cheap",
+    config: {
+      providerCostTiers: {
+        brave: "standard",
+        gemini: "premium",
+        duckduckgo: "cheap",
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["duckduckgo"]);
+});
+
+test("resolveSelectedProviders uses defaultMaxCostTier and sorts cheap-first", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    config: {
+      defaultMaxCostTier: "standard",
+      providerCostTiers: {
+        brave: "standard",
+        gemini: "premium",
+        duckduckgo: "cheap",
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["duckduckgo", "brave"]);
+});
+
+test("resolveSelectedProviders falls back to the cheapest available tier when cap excludes all", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMaxCostTier: "cheap",
+    config: {
+      providerCostTiers: {
+        brave: "standard",
+        gemini: "premium",
+        duckduckgo: "premium",
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+});

@@ -35,6 +35,19 @@
         "items": { "type": "string" },
         "description": "Provider ids to never use by default."
       },
+      "providerCostTiers": {
+        "type": "object",
+        "description": "Optional provider cost map keyed by provider id. Used by maxCostTier/defaultMaxCostTier to constrain routing.",
+        "additionalProperties": {
+          "type": "string",
+          "enum": ["cheap", "standard", "premium"]
+        }
+      },
+      "defaultMaxCostTier": {
+        "type": "string",
+        "enum": ["cheap", "standard", "premium"],
+        "description": "Optional default cost cap when a request omits maxCostTier. If no provider fits, Search Fusion falls back to the cheapest available tier."
+      },
       "countPerProvider": {
         "type": "integer",
         "minimum": 1,
