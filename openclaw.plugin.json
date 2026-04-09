@@ -25,6 +25,38 @@
         },
         "description": "User-defined mode map. Each key is a mode name and each value is a provider id list."
       },
+      "intentProviders": {
+        "type": "object",
+        "description": "Provider lists keyed by intent hint (research, keyword, answer, news, local). Used when a request carries an intent but no explicit providers or mode. Falls back to the normal default-resolution chain when the intent has no entry here.",
+        "additionalProperties": false,
+        "properties": {
+          "research": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Providers to use for research/in-depth queries (e.g. gemini, tavily, brave)."
+          },
+          "keyword": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Providers to use for keyword/classic web searches (e.g. brave, duckduckgo)."
+          },
+          "answer": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Providers to use for direct-answer queries (e.g. gemini, perplexity, grok)."
+          },
+          "news": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Providers to use for news/current-events queries (e.g. brave, tavily)."
+          },
+          "local": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Providers to use for location-aware queries (e.g. brave)."
+          }
+        }
+      },
       "defaultProviders": {
         "type": "array",
         "items": { "type": "string" },

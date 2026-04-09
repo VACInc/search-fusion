@@ -55,6 +55,13 @@ Optional plugin config:
             "results": ["brave", "tavily", "duckduckgo"],
             "answers": ["gemini"]
           },
+          "intentProviders": {
+            "research": ["gemini", "tavily", "brave"],
+            "keyword":  ["brave", "duckduckgo"],
+            "answer":   ["gemini"],
+            "news":     ["brave", "tavily"],
+            "local":    ["brave"]
+          },
           "defaultMode": "balanced",
           "excludeProviders": ["grok"],
           "countPerProvider": 5,
@@ -85,11 +92,50 @@ Optional plugin config:
 Resolution order:
 - explicit `providers`
 - explicit `mode`
+- `intent` hint → matched against `intentProviders` map
 - configured `defaultMode`
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
 
 `providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
+
+### Intent-based routing
+
+Set `intentProviders` to bias provider selection when a caller passes an `intent` hint. The intent is applied after explicit `providers`/`mode` but before `defaultMode`/`defaultProviders`, so it only kicks in when the caller leaves routing unspecified.
+
+Supported intents:
+
+| Intent | Suggested use | Example providers |
+|---|---|---|
+| `research` | In-depth investigation; prefers answer/grounding | `gemini`, `tavily`, `brave` |
+| `keyword` | Classic keyword/web search | `brave`, `duckduckgo` |
+| `answer` | Direct answer expected | `gemini`, `perplexity`, `grok` |
+| `news` | Recent news / current events | `brave`, `tavily` |
+| `local` | Location-aware queries | `brave` |
+
+Example config snippet:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "search-fusion": {
+        "config": {
+          "intentProviders": {
+            "research": ["gemini", "tavily", "brave"],
+            "keyword":  ["brave", "duckduckgo"],
+            "answer":   ["gemini", "perplexity"],
+            "news":     ["brave", "tavily"],
+            "local":    ["brave"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+When `intentProviders` has no entry for the given intent, or the mapped providers are unavailable, routing falls through to `defaultMode`, `defaultProviders`, and finally all configured providers.
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -117,6 +163,7 @@ Example prompt:
 
 Supported arguments:
 - `query`
+- `intent` — optional routing hint: `research`, `keyword`, `answer`, `news`, or `local`
 - `mode` — user-defined mode name from plugin config
 - `providers` — provider ids, or `all`
 - `count`
@@ -155,6 +202,7 @@ pnpm test
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
+- supports `intent` routing hints (`research`, `keyword`, `answer`, `news`, `local`) that bias provider selection without overriding explicit `providers` or `mode`
 
 ## Next upgrades
 
