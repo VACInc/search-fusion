@@ -28,6 +28,7 @@ Search Fusion is the orchestration layer:
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
 - expose native ranks, deterministic flags, and merged rankings
+- emit structured `payload.evidenceTable` rows for downstream evidence-table renderers (for example Atlas)
 - expose one clean result set back to the agent
 
 ## Install
@@ -134,6 +135,31 @@ Supported arguments:
 
 Lists the providers visible to the broker and whether they appear configured.
 
+## Evidence table output (`payload.evidenceTable`)
+
+Search Fusion emits a table-ready structure for downstream consumers like Atlas.
+
+- `columns[]` provides stable column metadata (`key`, `label`, `description`)
+- `rows[]` has one row per merged URL (`rowId` is the canonical URL)
+- `rows[].answerCitationSupport` tracks citation count and citing providers from answer-style runs
+- `rows[].providerEvidence[]` keeps provider-level rank, score, source type, flags, and snippets for drill-down cells
+
+Example flattening transform:
+
+```ts
+const tableRows = payload.evidenceTable.rows.map((row) => ({
+  rank: row.rank,
+  title: row.title,
+  url: row.url,
+  providers: row.providers.join(", "),
+  providerCount: row.providerCount,
+  bestRank: row.bestRank,
+  score: Number(row.score.toFixed(3)),
+  answerCitationCount: row.answerCitationSupport.count,
+  flags: row.flags.join(", "),
+}));
+```
+
 ## Development
 
 ```bash
@@ -152,6 +178,8 @@ pnpm test
 - retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
+- emits `evidenceTable.columns[]` and `evidenceTable.rows[]` for direct evidence-table rendering
+- includes `evidenceTable.rows[].answerCitationSupport` and `providerEvidence[]` helper fields for claim-support views
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
