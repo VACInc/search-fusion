@@ -147,6 +147,37 @@ export type FusionMergedResult = {
   variants: NormalizedSearchResult[];
 };
 
+/**
+ * Why a provider was included or excluded from a particular search run.
+ *
+ * - `"ran"` — provider was selected and executed
+ * - `"skipped-not-configured"` — provider exists but has no credential
+ * - `"skipped-not-in-mode"` — request used an explicit mode/provider list that did not include this provider
+ * - `"skipped-excluded"` — provider is in the global `excludeProviders` list
+ * - `"skipped-is-self"` — provider is search-fusion itself (recursion guard)
+ * - `"skipped-all-expand"` — provider was visible but not configured when `providers=["all"]` was requested and configured alternatives existed
+ */
+export type ProviderRunReason =
+  | "ran"
+  | "skipped-not-configured"
+  | "skipped-not-in-mode"
+  | "skipped-excluded"
+  | "skipped-is-self"
+  | "skipped-all-expand";
+
+export type ProviderRoutingDecision = {
+  /** Provider id */
+  id: string;
+  /** Human-readable provider label */
+  label: string;
+  /** Whether the provider has a configured credential (or is keyless) */
+  configured: boolean;
+  /** Why this provider ran or was skipped */
+  reason: ProviderRunReason;
+  /** Optional free-text detail for the reason (e.g. the mode name or the exclusion list) */
+  detail?: string;
+};
+
 export type SearchRuntime = {
   webSearch: {
     listProviders: (params?: { config?: unknown }) => RuntimeWebSearchProvider[];
@@ -191,6 +222,12 @@ export type FusionSearchPayload = {
   }>;
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
+  /**
+   * Per-provider routing decisions for this run.
+   * Covers every provider seen by the broker — whether it ran, was skipped,
+   * excluded, or self-guarded — with a machine-readable `reason` and optional detail.
+   */
+  routingDecisions: ProviderRoutingDecision[];
   externalContent: {
     untrusted: true;
     source: "web_search";

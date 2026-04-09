@@ -626,3 +626,73 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.equal(payload.providerRuns.length, 3);
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
 });
+
+test("runSearchFusion includes routingDecisions covering all providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "routing decisions",
+      providers: ["brave", "gemini"],
+    },
+  });
+
+  assert.ok(Array.isArray(payload.routingDecisions), "routingDecisions must be an array");
+
+  // search-fusion self must be skipped-is-self
+  const self = payload.routingDecisions.find((d) => d.id === "search-fusion");
+  assert.equal(self?.reason, "skipped-is-self");
+
+  // explicitly queried providers must be "ran"
+  const brave = payload.routingDecisions.find((d) => d.id === "brave");
+  const gemini = payload.routingDecisions.find((d) => d.id === "gemini");
+  assert.equal(brave?.reason, "ran");
+  assert.equal(gemini?.reason, "ran");
+
+  // tavily and duckduckgo were not in the explicit list so must be skipped
+  const tavily = payload.routingDecisions.find((d) => d.id === "tavily");
+  const duckduckgo = payload.routingDecisions.find((d) => d.id === "duckduckgo");
+  assert.equal(tavily?.reason, "skipped-not-in-mode");
+  assert.equal(duckduckgo?.reason, "skipped-not-in-mode");
+});
+
+test("runSearchFusion routingDecisions marks excluded providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: { excludeProviders: ["gemini"] },
+    request: {
+      query: "exclusion check",
+      providers: ["all"],
+    },
+  });
+
+  const gemini = payload.routingDecisions.find((d) => d.id === "gemini");
+  assert.equal(gemini?.reason, "skipped-excluded");
+
+  // all other configured providers should have run
+  for (const id of payload.providersQueried) {
+    const decision = payload.routingDecisions.find((d) => d.id === id);
+    assert.equal(decision?.reason, "ran", `${id} queried but not marked as ran`);
+  }
+});
+
+test("runSearchFusion routingDecisions includes detail strings", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      modes: { fast: ["brave"] },
+    },
+    request: {
+      query: "detail check",
+      mode: "fast",
+    },
+  });
+
+  const brave = payload.routingDecisions.find((d) => d.id === "brave");
+  assert.ok(brave?.detail, "ran provider should have a detail string");
+  const gemini = payload.routingDecisions.find((d) => d.id === "gemini");
+  assert.ok(gemini?.detail, "skipped provider should have a detail string");
+});

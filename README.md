@@ -155,11 +155,61 @@ pnpm test
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
-
-## Next upgrades
+- exposes `routingDecisions[]` in every payload — one entry per known provider explaining why it ran, was skipped, excluded, or self-guarded
 
 - provider weighting
 - cost-aware routing modes
 - result reranking beyond URL dedupe
 - caching at the broker layer
 - optional fetch/expansion of top merged hits
+
+## Provider routing decisions
+
+Every `search_fusion` payload now contains a `routingDecisions` array with one entry for every provider the broker knows about.
+
+```jsonc
+"routingDecisions": [
+  {
+    "id": "search-fusion",
+    "label": "Search Fusion",
+    "configured": true,
+    "reason": "skipped-is-self",
+    "detail": "Excluded from provider pool to prevent recursion."
+  },
+  {
+    "id": "brave",
+    "label": "Brave",
+    "configured": true,
+    "reason": "ran",
+    "detail": "Selected by mode \"fast\"."
+  },
+  {
+    "id": "gemini",
+    "label": "Gemini",
+    "configured": true,
+    "reason": "skipped-not-in-mode",
+    "detail": "Not in mode \"fast\"."
+  },
+  {
+    "id": "grok",
+    "label": "Grok",
+    "configured": false,
+    "reason": "skipped-excluded",
+    "detail": "In excludeProviders list."
+  }
+]
+```
+
+### `reason` values
+
+| Value | Meaning |
+|---|---|
+| `ran` | Provider was selected and executed |
+| `skipped-not-configured` | Provider exists but has no credential |
+| `skipped-not-in-mode` | Request used a mode/provider list that did not include this provider |
+| `skipped-excluded` | Provider is in the global `excludeProviders` list |
+| `skipped-is-self` | Provider is search-fusion itself (recursion guard) |
+| `skipped-all-expand` | `providers=["all"]` was requested but only configured providers expanded; this one was not configured |
+
+The `detail` field is always a human-readable string explaining the specific decision.
+To filter at a glance: `routingDecisions.filter(d => d.reason !== "ran")`.
