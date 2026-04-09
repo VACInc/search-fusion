@@ -1,5 +1,6 @@
 import type {
   FusionMergedResult,
+  FusionResultCluster,
   FusionSearchPayload,
   ProviderRunResult,
   ProviderSelectionRequest,
@@ -12,6 +13,7 @@ import type {
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
+import { resolveDomainFamily } from "./text.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
@@ -269,6 +271,82 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
     .slice(0, maxMergedResults);
 }
 
+function resolveClusterKey(result: FusionMergedResult): string {
+  const domainFamily = resolveDomainFamily(result.canonicalUrl);
+  if (domainFamily) {
+    return domainFamily;
+  }
+
+  const normalizedSiteName = result.siteName?.trim().toLowerCase();
+  if (normalizedSiteName) {
+    return normalizedSiteName;
+  }
+
+  return result.canonicalUrl;
+}
+
+function buildResultClusters(results: FusionMergedResult[]): FusionResultCluster[] {
+  const grouped = new Map<
+    string,
+    {
+      key: string;
+      label: string;
+      providers: Set<string>;
+      topScore: number;
+      bestRank: number;
+      flags: Set<SearchResultFlag>;
+      results: FusionMergedResult[];
+    }
+  >();
+
+  for (const result of results) {
+    const key = resolveClusterKey(result);
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        key,
+        label: key,
+        providers: new Set(result.providers),
+        topScore: result.score,
+        bestRank: result.bestRank,
+        flags: new Set(result.flags),
+        results: [result],
+      });
+      continue;
+    }
+
+    existing.results.push(result);
+    for (const providerId of result.providers) {
+      existing.providers.add(providerId);
+    }
+    existing.topScore = Math.max(existing.topScore, result.score);
+    existing.bestRank = Math.min(existing.bestRank, result.bestRank);
+    for (const flag of result.flags) {
+      existing.flags.add(flag);
+    }
+  }
+
+  return [...grouped.values()]
+    .map((cluster) => ({
+      key: cluster.key,
+      label: cluster.label,
+      resultCount: cluster.results.length,
+      providerCount: cluster.providers.size,
+      providers: [...cluster.providers].sort(),
+      topScore: cluster.topScore,
+      bestRank: cluster.bestRank,
+      flags: [...cluster.flags].sort(),
+      results: [...cluster.results],
+    }))
+    .sort((a, b) => {
+      if (b.topScore !== a.topScore) return b.topScore - a.topScore;
+      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
+      if (b.resultCount !== a.resultCount) return b.resultCount - a.resultCount;
+      return a.label.localeCompare(b.label);
+    });
+}
+
 async function runProvider(params: {
   runtime: SearchRuntime;
   config: unknown;
@@ -398,6 +476,7 @@ export async function runSearchFusion(params: {
       providerRuns: [],
       answers: [],
       results: [],
+      clusters: [],
       externalContent: {
         untrusted: true,
         source: "web_search",
@@ -427,6 +506,7 @@ export async function runSearchFusion(params: {
   );
 
   const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
+  const clusters = buildResultClusters(mergedResults);
   const answers = providerRuns
     .map((run) => run.answer)
     .filter((answer): answer is NonNullable<ProviderRunResult["answer"]> => Boolean(answer));
@@ -466,6 +546,7 @@ export async function runSearchFusion(params: {
     })),
     answers,
     results: mergedResults,
+    clusters,
     externalContent: {
       untrusted: true,
       source: "web_search",
@@ -498,6 +579,16 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
   } else {
     lines.push("");
     lines.push("No merged results.");
+  }
+
+  if (payload.clusters.length > 0) {
+    lines.push("");
+    lines.push(`Result clusters (${payload.clusters.length}):`);
+    for (const cluster of payload.clusters) {
+      lines.push(
+        `- ${cluster.label}: ${cluster.resultCount} result${cluster.resultCount === 1 ? "" : "s"} from ${cluster.providerCount} provider${cluster.providerCount === 1 ? "" : "s"}`,
+      );
+    }
   }
 
   if (payload.answers.length > 0) {
