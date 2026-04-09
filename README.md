@@ -27,7 +27,7 @@ Search Fusion is the orchestration layer:
 - merge duplicate URLs
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
-- expose native ranks, deterministic flags, and merged rankings
+- expose native ranks, deterministic flags, merged rankings, and machine-readable ranking explainability
 - expose one clean result set back to the agent
 
 ## Install
@@ -130,6 +130,12 @@ Supported arguments:
 - `ui_lang`
 - `includeFailures`
 
+## Ranking explainability
+
+Merged payloads include:
+- `results[].ranking` with the final rank, score breakdown (`bestVariantScore`, `corroborationBonus`, `bestRankBonus`, `flagPenalty`, `finalScore`), and tie-breaker values.
+- top-level `ranking` metadata with the strategy, sort order, considered/returned counts, and `dropped[]` entries (with `reason: "maxMergedResults"`) for results trimmed by the output cap.
+
 ### `search_fusion_providers`
 
 Lists the providers visible to the broker and whether they appear configured.
@@ -153,7 +159,7 @@ pnpm test
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
-- surfaces native ranks and merged rankings so the LLM can see where each hit came from
+- surfaces native ranks, merged rankings, per-result score breakdowns, and dropped-result reasons so ranking decisions are auditable
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades

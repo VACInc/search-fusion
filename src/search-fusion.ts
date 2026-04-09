@@ -1,5 +1,7 @@
 import type {
   FusionMergedResult,
+  FusionRankingMeta,
+  FusionScoreBreakdown,
   FusionSearchPayload,
   ProviderRunResult,
   ProviderSelectionRequest,
@@ -21,6 +23,8 @@ const DEFAULT_RETRY_BACKOFF_MS = 750;
 const DEFAULT_RETRY_BACKOFF_MULTIPLIER = 2;
 const DEFAULT_RETRY_MAX_BACKOFF_MS = 5000;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
+const MERGED_RANKING_STRATEGY = "merged-score-v1" as const;
+const MERGED_SORT_ORDER = ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"] as const;
 
 type ResolvedRetryConfig = {
   maxAttempts: number;
@@ -167,6 +171,13 @@ function mergeFlags(...flagLists: Array<readonly SearchResultFlag[]>): SearchRes
   return [...new Set(flagLists.flatMap((flags) => [...flags]))].sort();
 }
 
+type MergeCandidate = Omit<FusionMergedResult, "score" | "ranking">;
+
+type ScoredMergeCandidate = MergeCandidate & {
+  score: number;
+  scoreBreakdown: FusionScoreBreakdown;
+};
+
 function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   let penalty = 0;
   if (flags.includes("sponsored")) penalty += 0.65;
@@ -177,15 +188,66 @@ function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   return penalty;
 }
 
-function computeMergedScore(entry: Omit<FusionMergedResult, "score">): number {
+function computeMergedScoreBreakdown(entry: MergeCandidate): FusionScoreBreakdown {
   const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
   const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
   const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
-  return Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - mergedFlagPenalty(entry.flags));
+  const flagPenalty = mergedFlagPenalty(entry.flags);
+
+  return {
+    bestVariantScore,
+    corroborationBonus,
+    bestRankBonus,
+    flagPenalty,
+    finalScore: Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - flagPenalty),
+  };
 }
 
-function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
-  const merged = new Map<string, Omit<FusionMergedResult, "score">>();
+function compareMergedCandidates(
+  a: Pick<FusionMergedResult, "score" | "bestRank" | "providerCount" | "title">,
+  b: Pick<FusionMergedResult, "score" | "bestRank" | "providerCount" | "title">,
+): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
+  if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
+  return a.title.localeCompare(b.title);
+}
+
+function buildRankingExplanation(params: {
+  rank: number;
+  title: string;
+  bestRank: number;
+  providerCount: number;
+  scoreBreakdown: FusionScoreBreakdown;
+}): FusionMergedResult["ranking"] {
+  return {
+    strategy: MERGED_RANKING_STRATEGY,
+    rank: params.rank,
+    scoreBreakdown: params.scoreBreakdown,
+    tieBreakers: {
+      bestRank: params.bestRank,
+      providerCount: params.providerCount,
+      title: params.title,
+    },
+  };
+}
+
+function emptyRankingMeta(): FusionRankingMeta {
+  return {
+    strategy: MERGED_RANKING_STRATEGY,
+    sortOrder: [...MERGED_SORT_ORDER],
+    consideredCount: 0,
+    returnedCount: 0,
+    droppedCount: 0,
+    dropped: [],
+  };
+}
+
+function mergeResults(
+  results: ProviderRunResult[],
+  maxMergedResults: number,
+): { results: FusionMergedResult[]; ranking: FusionRankingMeta } {
+  const merged = new Map<string, MergeCandidate>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -243,30 +305,74 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
     }
   }
 
-  return [...merged.values()]
-    .map((entry) => ({
-      ...entry,
-      providers: [...entry.providers].sort(),
-      providerCount: entry.providers.length,
-      flags: [...entry.flags].sort(),
-      rankings: [...entry.rankings].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      variants: [...entry.variants].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        if (b.score !== a.score) return b.score - a.score;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      score: computeMergedScore(entry),
-    }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
-      if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
-      return a.title.localeCompare(b.title);
+  const rankedCandidates: ScoredMergeCandidate[] = [...merged.values()]
+    .map((entry) => {
+      const normalized: MergeCandidate = {
+        ...entry,
+        providers: [...entry.providers].sort(),
+        providerCount: entry.providers.length,
+        flags: [...entry.flags].sort(),
+        rankings: [...entry.rankings].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+        variants: [...entry.variants].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          if (b.score !== a.score) return b.score - a.score;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+      };
+      const scoreBreakdown = computeMergedScoreBreakdown(normalized);
+
+      return {
+        ...normalized,
+        score: scoreBreakdown.finalScore,
+        scoreBreakdown,
+      };
     })
-    .slice(0, maxMergedResults);
+    .sort(compareMergedCandidates);
+
+  const mergedResults: FusionMergedResult[] = rankedCandidates
+    .slice(0, maxMergedResults)
+    .map((entry, index) => {
+      const { scoreBreakdown, ...base } = entry;
+      return {
+        ...base,
+        ranking: buildRankingExplanation({
+          rank: index + 1,
+          title: base.title,
+          bestRank: base.bestRank,
+          providerCount: base.providerCount,
+          scoreBreakdown,
+        }),
+      };
+    });
+
+  const dropped = rankedCandidates.slice(maxMergedResults).map((entry, index) => ({
+    rank: maxMergedResults + index + 1,
+    reason: "maxMergedResults" as const,
+    title: entry.title,
+    url: entry.url,
+    canonicalUrl: entry.canonicalUrl,
+    score: entry.score,
+    bestRank: entry.bestRank,
+    providerCount: entry.providerCount,
+  }));
+
+  return {
+    results: mergedResults,
+    ranking:
+      rankedCandidates.length === 0
+        ? emptyRankingMeta()
+        : {
+            strategy: MERGED_RANKING_STRATEGY,
+            sortOrder: [...MERGED_SORT_ORDER],
+            consideredCount: rankedCandidates.length,
+            returnedCount: mergedResults.length,
+            droppedCount: dropped.length,
+            dropped,
+          },
+  };
 }
 
 async function runProvider(params: {
@@ -398,6 +504,7 @@ export async function runSearchFusion(params: {
       providerRuns: [],
       answers: [],
       results: [],
+      ranking: emptyRankingMeta(),
       externalContent: {
         untrusted: true,
         source: "web_search",
@@ -426,7 +533,8 @@ export async function runSearchFusion(params: {
     ),
   );
 
-  const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
+  const merged = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
+  const mergedResults = merged.results;
   const answers = providerRuns
     .map((run) => run.answer)
     .filter((answer): answer is NonNullable<ProviderRunResult["answer"]> => Boolean(answer));
@@ -466,6 +574,7 @@ export async function runSearchFusion(params: {
     })),
     answers,
     results: mergedResults,
+    ranking: merged.ranking,
     externalContent: {
       untrusted: true,
       source: "web_search",

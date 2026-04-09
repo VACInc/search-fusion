@@ -140,6 +140,10 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   assert.equal(mergedDocs?.variants.length, 3);
   assert.equal(mergedDocs?.rankings.length, 3);
   assert.deepEqual(mergedDocs?.flags, ["redirect-wrapper", "tracking-stripped"]);
+  assert.equal(mergedDocs?.ranking.strategy, "merged-score-v1");
+  assert.equal(mergedDocs?.ranking.rank, 1);
+  assert.equal(mergedDocs?.ranking.scoreBreakdown.finalScore, mergedDocs?.score);
+  assert.equal(mergedDocs?.ranking.tieBreakers.bestRank, mergedDocs?.bestRank);
   assert.equal(
     (mergedDocs?.variants.find((variant) => variant.providerId === "brave")?.rawItem as {
       metadata?: { provider?: string };
@@ -195,6 +199,27 @@ test("runSearchFusion falls back to all configured providers when no defaults or
   });
 
   assert.deepEqual(payload.providersQueried, ["brave", "gemini", "tavily", "duckduckgo"]);
+});
+
+test("runSearchFusion includes empty ranking metadata when no providers are available", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      providers: [{ id: "search-fusion", label: "Search Fusion", configured: true, autoDetectOrder: 999 }],
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw",
+    },
+  });
+
+  assert.equal(payload.results.length, 0);
+  assert.equal(payload.ranking.strategy, "merged-score-v1");
+  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
+  assert.equal(payload.ranking.consideredCount, 0);
+  assert.equal(payload.ranking.returnedCount, 0);
+  assert.equal(payload.ranking.droppedCount, 0);
+  assert.deepEqual(payload.ranking.dropped, []);
 });
 
 test("runSearchFusion throws on unknown explicit mode", async () => {
@@ -625,4 +650,23 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.equal(payload.results.length, 2);
   assert.equal(payload.providerRuns.length, 3);
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
+
+  assert.equal(payload.ranking.strategy, "merged-score-v1");
+  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
+  assert.equal(payload.ranking.consideredCount, 3);
+  assert.equal(payload.ranking.returnedCount, 2);
+  assert.equal(payload.ranking.droppedCount, 1);
+  assert.equal(payload.ranking.dropped[0]?.rank, 3);
+  assert.equal(payload.ranking.dropped[0]?.reason, "maxMergedResults");
+  assert.equal(payload.ranking.dropped[0]?.title, "GitHub");
+  assert.equal(payload.ranking.dropped[0]?.url, "https://github.com/openclaw/openclaw");
+  assert.equal(payload.ranking.dropped[0]?.canonicalUrl, "https://github.com/openclaw/openclaw");
+  assert.equal(payload.ranking.dropped[0]?.bestRank, 2);
+  assert.equal(payload.ranking.dropped[0]?.providerCount, 1);
+  assert.ok(Math.abs((payload.ranking.dropped[0]?.score ?? 0) - 0.9724) < 0.0001);
+  assert.deepEqual(
+    payload.results.map((result) => result.ranking.rank),
+    [1, 2],
+  );
+  assert.ok(payload.results.every((result) => result.ranking.scoreBreakdown.finalScore === result.score));
 });
