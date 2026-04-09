@@ -11,6 +11,7 @@ export type SearchFusionProviderConfig = {
   retry?: SearchFusionRetryConfig;
   timeoutMs?: number;
   count?: number;
+  weight?: number;
 };
 
 export type SourceTierMode = "off" | "balanced" | "strict";
