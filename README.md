@@ -15,6 +15,7 @@ The broker relies on the newer plugin runtime web-search helpers. Older OpenClaw
 - A **web search provider** named `search-fusion`
 - A direct **agent tool** named `search_fusion`
 - A helper tool named `search_fusion_providers`
+- A **provider capability taxonomy** in `src/provider-capabilities.ts`
 
 ## Why this exists
 
@@ -156,9 +157,75 @@ pnpm test
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
+## Provider capability taxonomy
+
+Each provider carries a set of declarative **capability tags** that describe what it is good at.  These are resolved at discovery time and attached to `ResolvedProvider.capabilities`.
+
+```ts
+import {
+  resolveProviderCapabilities,
+  hasCapability,
+  filterByCapabilities,
+  filterByAnyCapability,
+  ALL_PROVIDER_CAPABILITIES,
+} from "@vacinc/search-fusion";
+
+// What can brave do?
+resolveProviderCapabilities("brave");     // ["news", "privacy", "results"]
+resolveProviderCapabilities("gemini");    // ["answer", "results"]
+resolveProviderCapabilities("exa");       // ["academic", "code", "neural", "results"]
+resolveProviderCapabilities("duckduckgo"); // ["free-tier", "privacy", "results"]
+
+// Does tavily synthesise answers?
+hasCapability(resolveProviderCapabilities("tavily"), "answer"); // true
+
+// Which providers are both neural and answer-capable?
+filterByCapabilities(["brave", "exa", "tavily", "perplexity"], ["neural", "answer"]);
+// => ["tavily", "perplexity"]
+
+// Which providers have any privacy-preserving capability?
+filterByAnyCapability(["brave", "duckduckgo", "gemini"], ["privacy", "free-tier"]);
+// => ["brave", "duckduckgo"]
+```
+
+### Full capability vocabulary
+
+| Tag | Meaning |
+|---|---|
+| `results` | Returns a ranked list of URLs/snippets (classic web search). |
+| `answer` | Synthesises a grounded prose answer alongside or instead of links. |
+| `news` | Has a dedicated news index or strong freshness/recency signal. |
+| `images` | Can return image results. |
+| `video` | Can return video results. |
+| `local` | Strong local / maps intent handling. |
+| `academic` | Indexed academic or scientific content. |
+| `code` | Particularly good at code / technical queries. |
+| `neural` | Uses neural / semantic retrieval rather than (only) keyword matching. |
+| `free-tier` | Usable at meaningful call volume without a paid API key. |
+| `privacy` | Explicitly avoids user-level tracking. |
+
+### Known registry (built-in)
+
+| Provider id | Capabilities |
+|---|---|
+| `brave` | `news`, `privacy`, `results` |
+| `duckduckgo` | `free-tier`, `privacy`, `results` |
+| `exa` | `academic`, `code`, `neural`, `results` |
+| `gemini` | `answer`, `results` |
+| `google` | `images`, `local`, `news`, `results`, `video` |
+| `grok` | `answer`, `news`, `results` |
+| `kimi` | `answer`, `results` |
+| `perplexity` | `answer`, `neural`, `results` |
+| `searxng` | `free-tier`, `privacy`, `results` |
+| `serper` | `images`, `local`, `news`, `results`, `video` |
+| `tavily` | `answer`, `neural`, `results` |
+
+Providers not in the registry return an empty capability set (treated as general-purpose).  Future routing features such as cost-aware mode selection and automatic mode generation will build on this taxonomy.
+
 ## Next upgrades
 
-- provider weighting
+- capability-driven automatic mode generation (e.g. auto-select answer providers for question-style queries)
+- provider weighting based on capability scores
 - cost-aware routing modes
 - result reranking beyond URL dedupe
 - caching at the broker layer
