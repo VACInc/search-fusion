@@ -27,7 +27,7 @@ Search Fusion is the orchestration layer:
 - merge duplicate URLs
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
-- expose native ranks, deterministic flags, and merged rankings
+- expose native ranks, deterministic flags, merged rankings, and consensus/disagreement signals
 - expose one clean result set back to the agent
 
 ## Install
@@ -134,6 +134,17 @@ Supported arguments:
 
 Lists the providers visible to the broker and whether they appear configured.
 
+## Consensus metadata
+
+Each merged result now includes a structured `consensus` object with fields downstream tools can consume directly:
+
+- `independentSupportCount` and `totalMentions`
+- `sourceTypeMentionCounts` and `sourceTypeProviderCounts`
+- `providerSupport[]` with per-provider `bestRank`, `mentionCount`, and `sourceTypes`
+- `rankAgreement` stats (`bestRank`, `worstRank`, `rankSpread`, `medianRank`, `meanRank`)
+- `corroborationScore` and `supportLabel`
+- `disagreementHints` (for example `single-provider-support`, `rank-spread`, `citation-heavy`, `title-variance`)
+
 ## Development
 
 ```bash
@@ -154,6 +165,7 @@ pnpm test
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
+- surfaces structured consensus metadata per merged hit (`consensus.independentSupportCount`, source-type support counts, per-provider support, rank agreement stats, corroboration score, and disagreement hints)
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades

@@ -140,6 +140,17 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   assert.equal(mergedDocs?.variants.length, 3);
   assert.equal(mergedDocs?.rankings.length, 3);
   assert.deepEqual(mergedDocs?.flags, ["redirect-wrapper", "tracking-stripped"]);
+  assert.equal(mergedDocs?.consensus.independentSupportCount, 3);
+  assert.equal(mergedDocs?.consensus.totalMentions, 3);
+  assert.deepEqual(mergedDocs?.consensus.sourceTypeMentionCounts, {
+    results: 3,
+    sources: 0,
+    citations: 0,
+  });
+  assert.equal(mergedDocs?.consensus.rankAgreement.rankSpread, 0);
+  assert.equal(mergedDocs?.consensus.supportLabel, "high");
+  assert.ok((mergedDocs?.consensus.corroborationScore ?? 0) > 0.8);
+  assert.deepEqual(mergedDocs?.consensus.disagreementHints, ["title-variance"]);
   assert.equal(
     (mergedDocs?.variants.find((variant) => variant.providerId === "brave")?.rawItem as {
       metadata?: { provider?: string };
@@ -147,6 +158,67 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     "brave",
   );
   assert.equal(payload.providersSucceeded.length, 3);
+});
+
+test("runSearchFusion exposes rank-spread and citation-heavy disagreement hints", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        if (providerId === "brave") {
+          return {
+            provider: "brave",
+            result: {
+              results: [{ title: "Target", url: "https://example.com/target", description: "primary" }],
+            },
+          };
+        }
+
+        if (providerId === "tavily") {
+          return {
+            provider: "tavily",
+            result: {
+              results: [
+                { title: "Noise 1", url: "https://example.com/noise-1" },
+                { title: "Noise 2", url: "https://example.com/noise-2" },
+                { title: "Noise 3", url: "https://example.com/noise-3" },
+                { title: "Noise 4", url: "https://example.com/noise-4" },
+                { title: "Target variant", url: "https://example.com/target" },
+              ],
+            },
+          };
+        }
+
+        return {
+          provider: "gemini",
+          result: {
+            citations: [
+              "https://example.com/target",
+              { url: "https://example.com/target", title: "Target citation" },
+              "https://example.com/target?utm_source=gemini",
+            ],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "consensus disagreement signals",
+      providers: ["brave", "tavily", "gemini"],
+    },
+  });
+
+  const target = payload.results.find((result) => result.canonicalUrl === "https://example.com/target");
+  assert.ok(target);
+  assert.equal(target?.consensus.independentSupportCount, 3);
+  assert.equal(target?.consensus.rankAgreement.rankSpread, 4);
+  assert.deepEqual(target?.consensus.sourceTypeMentionCounts, {
+    results: 2,
+    sources: 0,
+    citations: 3,
+  });
+  assert.ok(target?.consensus.disagreementHints.includes("rank-spread"));
+  assert.ok(target?.consensus.disagreementHints.includes("citation-heavy"));
 });
 
 test("runSearchFusion uses configured default providers and excludes itself", async () => {

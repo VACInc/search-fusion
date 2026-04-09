@@ -7,7 +7,10 @@ import type {
   SearchFusionConfig,
   SearchFusionProviderConfig,
   SearchFusionRetryConfig,
+  SearchResultConsensusHint,
+  SearchResultConsensusSignals,
   SearchResultFlag,
+  SearchResultSourceType,
   SearchRuntime,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
@@ -177,15 +180,199 @@ function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   return penalty;
 }
 
-function computeMergedScore(entry: Omit<FusionMergedResult, "score">): number {
+function round(value: number, decimals = 3): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function buildEmptySourceTypeCountMap(): Record<SearchResultSourceType, number> {
+  return {
+    results: 0,
+    sources: 0,
+    citations: 0,
+  };
+}
+
+function normalizeAgreementText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function computeMedian(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1]! + sorted[middle]!) / 2;
+  }
+  return sorted[middle]!;
+}
+
+type MergedEntryWithoutScore = Omit<FusionMergedResult, "score" | "consensus">;
+
+function buildConsensusSignals(entry: MergedEntryWithoutScore): SearchResultConsensusSignals {
+  const sourceTypeMentionCounts = buildEmptySourceTypeCountMap();
+  const sourceTypeProviderSets: Record<SearchResultSourceType, Set<string>> = {
+    results: new Set<string>(),
+    sources: new Set<string>(),
+    citations: new Set<string>(),
+  };
+
+  const providerSupportMap = new Map<
+    string,
+    {
+      providerId: string;
+      bestRank: number;
+      mentionCount: number;
+      sourceTypes: Set<SearchResultSourceType>;
+    }
+  >();
+
+  for (const ranking of entry.rankings) {
+    sourceTypeMentionCounts[ranking.sourceType] += 1;
+    sourceTypeProviderSets[ranking.sourceType].add(ranking.providerId);
+
+    const existingSupport = providerSupportMap.get(ranking.providerId);
+    if (!existingSupport) {
+      providerSupportMap.set(ranking.providerId, {
+        providerId: ranking.providerId,
+        bestRank: ranking.rawRank,
+        mentionCount: 1,
+        sourceTypes: new Set<SearchResultSourceType>([ranking.sourceType]),
+      });
+      continue;
+    }
+
+    existingSupport.bestRank = Math.min(existingSupport.bestRank, ranking.rawRank);
+    existingSupport.mentionCount += 1;
+    existingSupport.sourceTypes.add(ranking.sourceType);
+  }
+
+  const providerSupport = [...providerSupportMap.values()]
+    .map((support) => ({
+      providerId: support.providerId,
+      bestRank: support.bestRank,
+      mentionCount: support.mentionCount,
+      sourceTypes: [...support.sourceTypes].sort((a, b) => a.localeCompare(b)),
+    }))
+    .sort((a, b) => {
+      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
+      return a.providerId.localeCompare(b.providerId);
+    });
+
+  const independentSupportCount = providerSupport.length;
+  const rankValues = providerSupport.map((support) => support.bestRank);
+  const bestRank = rankValues.length > 0 ? Math.min(...rankValues) : entry.bestRank;
+  const worstRank = rankValues.length > 0 ? Math.max(...rankValues) : entry.bestRank;
+  const rankSpread = worstRank - bestRank;
+  const medianRank = rankValues.length > 0 ? computeMedian(rankValues) : entry.bestRank;
+  const meanRank =
+    rankValues.length > 0
+      ? rankValues.reduce((sum, rank) => sum + rank, 0) / rankValues.length
+      : entry.bestRank;
+
+  const sourceTypeProviderCounts: Record<SearchResultSourceType, number> = {
+    results: sourceTypeProviderSets.results.size,
+    sources: sourceTypeProviderSets.sources.size,
+    citations: sourceTypeProviderSets.citations.size,
+  };
+
+  const nonCitationMentions = sourceTypeMentionCounts.results + sourceTypeMentionCounts.sources;
+  const totalMentions = entry.rankings.length;
+
+  const supportComponent = Math.min(1, independentSupportCount / 4);
+  const rankAgreementComponent = 1 / (1 + rankSpread / 2);
+  const directEvidenceShare = totalMentions > 0 ? nonCitationMentions / totalMentions : 0;
+  const evidenceComponent = 0.6 + directEvidenceShare * 0.4;
+  const corroborationScore = round(
+    clamp(supportComponent * 0.55 + rankAgreementComponent * 0.3 + evidenceComponent * 0.15, 0, 1),
+    3,
+  );
+
+  const disagreementHints: SearchResultConsensusHint[] = [];
+  if (independentSupportCount <= 1) {
+    disagreementHints.push("single-provider-support");
+  }
+  if (independentSupportCount > 1 && rankSpread >= 3) {
+    disagreementHints.push("rank-spread");
+  }
+  if (sourceTypeMentionCounts.citations > nonCitationMentions) {
+    disagreementHints.push("citation-heavy");
+  }
+
+  const providerPreferredTitles = new Map<string, { rank: number; title: string }>();
+  for (const variant of entry.variants) {
+    const existingTitle = providerPreferredTitles.get(variant.providerId);
+    if (
+      !existingTitle ||
+      variant.rawRank < existingTitle.rank ||
+      (variant.rawRank === existingTitle.rank && variant.title.length > existingTitle.title.length)
+    ) {
+      providerPreferredTitles.set(variant.providerId, {
+        rank: variant.rawRank,
+        title: variant.title,
+      });
+    }
+  }
+
+  const normalizedTitles = new Set(
+    [...providerPreferredTitles.values()]
+      .map((entryTitle) => normalizeAgreementText(entryTitle.title))
+      .filter((title) => title.length > 0),
+  );
+  if (independentSupportCount > 1 && normalizedTitles.size > 1) {
+    disagreementHints.push("title-variance");
+  }
+
+  return {
+    independentSupportCount,
+    totalMentions,
+    sourceTypeMentionCounts,
+    sourceTypeProviderCounts,
+    providerSupport,
+    rankAgreement: {
+      bestRank,
+      worstRank,
+      rankSpread,
+      medianRank: round(medianRank, 2),
+      meanRank: round(meanRank, 2),
+    },
+    corroborationScore,
+    supportLabel:
+      corroborationScore >= 0.72 ? "high" : corroborationScore >= 0.45 ? "medium" : "low",
+    disagreementHints,
+  };
+}
+
+function computeMergedScore(
+  entry: MergedEntryWithoutScore,
+  consensus: SearchResultConsensusSignals,
+): number {
   const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
-  const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
-  const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
-  return Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - mergedFlagPenalty(entry.flags));
+  const corroborationBonus = Math.max(0, consensus.independentSupportCount - 1) * 0.1;
+  const rankAgreementBonus = Math.max(0, 0.2 - consensus.rankAgreement.rankSpread * 0.03);
+  const confidenceBonus = consensus.corroborationScore * 0.08;
+  const disagreementPenalty =
+    (consensus.disagreementHints.includes("rank-spread") ? 0.06 : 0) +
+    (consensus.disagreementHints.includes("citation-heavy") ? 0.04 : 0);
+
+  return Math.max(
+    0.01,
+    bestVariantScore +
+      corroborationBonus +
+      rankAgreementBonus +
+      confidenceBonus -
+      mergedFlagPenalty(entry.flags) -
+      disagreementPenalty,
+  );
 }
 
 function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
-  const merged = new Map<string, Omit<FusionMergedResult, "score">>();
+  const merged = new Map<string, MergedEntryWithoutScore>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -244,22 +431,30 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
   }
 
   return [...merged.values()]
-    .map((entry) => ({
-      ...entry,
-      providers: [...entry.providers].sort(),
-      providerCount: entry.providers.length,
-      flags: [...entry.flags].sort(),
-      rankings: [...entry.rankings].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      variants: [...entry.variants].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        if (b.score !== a.score) return b.score - a.score;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      score: computeMergedScore(entry),
-    }))
+    .map((entry) => {
+      const normalizedEntry: MergedEntryWithoutScore = {
+        ...entry,
+        providers: [...entry.providers].sort(),
+        providerCount: entry.providers.length,
+        flags: [...entry.flags].sort(),
+        rankings: [...entry.rankings].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+        variants: [...entry.variants].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          if (b.score !== a.score) return b.score - a.score;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+      };
+      const consensus = buildConsensusSignals(normalizedEntry);
+
+      return {
+        ...normalizedEntry,
+        consensus,
+        score: computeMergedScore(normalizedEntry, consensus),
+      };
+    })
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
@@ -488,6 +683,12 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
       lines.push(`${index + 1}. ${result.title}`);
       lines.push(`   ${result.url}`);
       lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
+      lines.push(
+        `   Consensus: ${result.consensus.independentSupportCount} independent support • corroboration ${result.consensus.corroborationScore} (${result.consensus.supportLabel}) • rank spread ${result.consensus.rankAgreement.rankSpread}`,
+      );
+      if (result.consensus.disagreementHints.length > 0) {
+        lines.push(`   Disagreement hints: ${result.consensus.disagreementHints.join(", ")}`);
+      }
       if (result.flags.length > 0) {
         lines.push(`   Flags: ${result.flags.join(", ")}`);
       }
