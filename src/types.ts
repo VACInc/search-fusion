@@ -7,10 +7,16 @@ export type SearchFusionRetryConfig = {
   maxBackoffMs?: number;
 };
 
+export type SearchFusionAnswerTreatment =
+  | "hybrid"
+  | "citations-only"
+  | "prominent-digests";
+
 export type SearchFusionProviderConfig = {
   retry?: SearchFusionRetryConfig;
   timeoutMs?: number;
   count?: number;
+  answerTreatment?: SearchFusionAnswerTreatment;
 };
 
 export type SearchFusionConfig = {
@@ -22,6 +28,7 @@ export type SearchFusionConfig = {
   maxMergedResults?: number;
   providerTimeoutMs?: number;
   retry?: SearchFusionRetryConfig;
+  answerTreatment?: SearchFusionAnswerTreatment;
   providerConfig?: Record<string, SearchFusionProviderConfig>;
   providerRetries?: Record<string, SearchFusionRetryConfig>;
 };
@@ -112,6 +119,7 @@ export type ProviderRunResult = {
   providerId: string;
   label: string;
   configured: boolean;
+  answerTreatment: SearchFusionAnswerTreatment;
   ok: boolean;
   tookMs: number;
   rawCount: number;
@@ -161,6 +169,7 @@ export type SearchRuntime = {
 export type FusionSearchPayload = {
   query: string;
   provider: "search-fusion";
+  answerTreatment: SearchFusionAnswerTreatment;
   tookMs: number;
   count: number;
   configuredProviders: string[];
@@ -174,6 +183,7 @@ export type FusionSearchPayload = {
     rawCount: number;
     attempts: number;
     configured: boolean;
+    answerTreatment: SearchFusionAnswerTreatment;
     error?: string;
   }>;
   providerRuns: Array<{
@@ -183,6 +193,7 @@ export type FusionSearchPayload = {
     rawCount: number;
     attempts: number;
     configured: boolean;
+    answerTreatment: SearchFusionAnswerTreatment;
     error?: string;
     answer?: ProviderAnswerDigest;
     results: NormalizedSearchResult[];
