@@ -13,6 +13,22 @@ export type SearchFusionProviderConfig = {
   count?: number;
 };
 
+export type SearchFusionCacheConfig = {
+  /** Whether the in-memory result cache is enabled. Default: true. */
+  enabled?: boolean;
+  /**
+   * Time-to-live in seconds for a cached result (1–600). Default: 30.
+   * Short enough that repeated agent calls within a conversation are served
+   * from cache, yet fresh enough that the data is still useful.
+   */
+  ttlSeconds?: number;
+  /**
+   * Maximum number of entries kept in memory (1–1024). Default: 128.
+   * When the cap is reached the oldest entry is evicted first.
+   */
+  maxEntries?: number;
+};
+
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
@@ -24,6 +40,8 @@ export type SearchFusionConfig = {
   retry?: SearchFusionRetryConfig;
   providerConfig?: Record<string, SearchFusionProviderConfig>;
   providerRetries?: Record<string, SearchFusionRetryConfig>;
+  /** In-memory result cache settings. */
+  cache?: SearchFusionCacheConfig;
 };
 
 export type ProviderSelectionRequest = {
@@ -162,6 +180,8 @@ export type FusionSearchPayload = {
   query: string;
   provider: "search-fusion";
   tookMs: number;
+  /** True when this result was served from the in-memory broker cache. */
+  cached?: boolean;
   count: number;
   configuredProviders: string[];
   providersQueried: string[];

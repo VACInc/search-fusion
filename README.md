@@ -155,11 +155,57 @@ pnpm test
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
+- caches successful fusion results in memory for a short TTL (default 30 s) so repeated identical requests inside a conversation are served instantly without re-querying providers
+
+## Broker cache
+
+Search Fusion keeps a process-local, in-memory cache of successful search results.
+
+### What it does
+
+- Deduplicates identical requests within the configured TTL window.
+- Returns the cached `FusionSearchPayload` with `cached: true` on a hit.
+- Never writes to disk; the cache resets on every process restart.
+- Caches only when at least one provider succeeded — transient all-fail results are never frozen in the cache.
+
+### Cache key
+
+The key is a deterministic JSON fingerprint of:
+- normalised query (lower-case, trimmed)
+- sorted resolved provider list (after mode/default expansion)
+- all filter parameters: `count`, `maxMergedResults`, `country`, `language`, `freshness`, `date_after`, `date_before`, `search_lang`, `ui_lang`
+
+The `mode` field is **not** part of the key — two requests that map to the same provider set via different modes will share a cache entry once both have been resolved.
+
+### Config
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "search-fusion": {
+        "config": {
+          "cache": {
+            "enabled": true,
+            "ttlSeconds": 30,
+            "maxEntries": 128
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+| Key | Type | Default | Limits | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Set to `false` to disable the cache entirely. |
+| `ttlSeconds` | integer | `30` | 1–600 | How long a cached result stays valid. |
+| `maxEntries` | integer | `128` | 1–1024 | Max entries in memory; oldest entry evicted on overflow. |
 
 ## Next upgrades
 
 - provider weighting
 - cost-aware routing modes
 - result reranking beyond URL dedupe
-- caching at the broker layer
 - optional fetch/expansion of top merged hits

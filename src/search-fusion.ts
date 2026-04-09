@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
+import { brokerCache, buildCacheKey, resolveCacheConfig } from "./broker-cache.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
@@ -370,6 +371,7 @@ export async function runSearchFusion(params: {
   request: ProviderSelectionRequest;
 }): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
+  const cacheConfig = resolveCacheConfig(brokerConfig.cache);
   const availableProviders = discoverProviders({
     providers: params.runtime.webSearch.listProviders({ config: params.config }),
     config: params.config,
@@ -407,6 +409,21 @@ export async function runSearchFusion(params: {
     };
   }
 
+  // ------------------------------------------------------------------
+  // Cache lookup — only when the cache is enabled
+  // ------------------------------------------------------------------
+  const resolvedProviderIds = selectedProviders.map((p) => p.id);
+  const cacheKey = cacheConfig.enabled
+    ? buildCacheKey(params.request, resolvedProviderIds)
+    : "";
+
+  if (cacheConfig.enabled) {
+    const cached = brokerCache.get(cacheKey);
+    if (cached) {
+      return { ...cached, cached: true };
+    }
+  }
+
   const start = Date.now();
   const maxMergedResults = clamp(
     params.request.maxMergedResults ?? brokerConfig.maxMergedResults ?? DEFAULT_MAX_MERGED_RESULTS,
@@ -431,7 +448,7 @@ export async function runSearchFusion(params: {
     .map((run) => run.answer)
     .filter((answer): answer is NonNullable<ProviderRunResult["answer"]> => Boolean(answer));
 
-  return {
+  const payload: FusionSearchPayload = {
     query: params.request.query,
     provider: SEARCH_FUSION_PROVIDER_ID,
     tookMs: Date.now() - start,
@@ -473,6 +490,16 @@ export async function runSearchFusion(params: {
       aggregated: true,
     },
   };
+
+  // ------------------------------------------------------------------
+  // Cache store — only cache fully successful runs (at least one provider
+  // succeeded) so transient failures are not frozen in memory.
+  // ------------------------------------------------------------------
+  if (cacheConfig.enabled && payload.providersSucceeded.length > 0) {
+    brokerCache.set(cacheKey, payload, cacheConfig);
+  }
+
+  return payload;
 }
 
 export function renderFusionSummary(payload: FusionSearchPayload, includeFailures = false): string {
