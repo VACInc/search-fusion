@@ -3,6 +3,8 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { discoverProviders } from "./src/provider-discovery.js";
 import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
 import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
+export type { ProviderFilterDiagnostics, FilterDiagnosticEntry, FilterArgName, FilterSupportLevel } from "./src/filter-diagnostics.js";
+export { computeFilterDiagnostics, renderFilterDiagnostics } from "./src/filter-diagnostics.js";
 
 const SearchFusionParameters = Type.Object(
   {
