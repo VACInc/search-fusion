@@ -28,7 +28,7 @@ Search Fusion is the orchestration layer:
 - merge duplicate URLs
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
-- expose native ranks, deterministic flags, and merged rankings
+- expose native ranks, deterministic flags, merged rankings, and machine-readable ranking explainability
 - emit structured `payload.evidenceTable` rows for downstream evidence-table renderers (for example Atlas)
 - expose one clean result set back to the agent
 
@@ -198,6 +198,12 @@ Supported arguments:
 - `ui_lang`
 - `includeFailures`
 
+## Ranking explainability
+
+Merged payloads include:
+- `results[].ranking` with the final rank, score breakdown (`bestVariantScore`, `corroborationBonus`, `bestRankBonus`, `tierAdjustment`, `flagPenalty`, `finalScore`), and tie-breaker values.
+- top-level `ranking` metadata with the strategy, sort order, considered/returned counts, and `dropped[]` entries (with `reason: "maxMergedResults"`) for results trimmed by the output cap.
+
 ### `search_fusion_providers`
 
 Lists the providers visible to the broker and whether they appear configured.
@@ -251,7 +257,7 @@ pnpm test
 - emits `evidenceTable.columns[]` and `evidenceTable.rows[]` for direct evidence-table rendering
 - includes `evidenceTable.rows[].answerCitationSupport` and `providerEvidence[]` helper fields for claim-support views
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
-- surfaces native ranks and merged rankings so the LLM can see where each hit came from
+- surfaces native ranks, merged rankings, per-result score breakdowns, and dropped-result reasons so ranking decisions are auditable
 - classifies each hit into a source tier (`high`, `standard`, `low`, `suppressed`) and downranks lower-trust classes deterministically
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 - supports `intent` routing hints (`research`, `keyword`, `answer`, `news`, `local`) that bias provider selection without overriding explicit `providers` or `mode`

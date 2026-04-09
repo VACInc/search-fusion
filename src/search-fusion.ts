@@ -2,6 +2,8 @@ import type {
   FusionEvidenceRow,
   FusionEvidenceTable,
   FusionMergedResult,
+  FusionRankingMeta,
+  FusionScoreBreakdown,
   FusionSearchPayload,
   ProviderAnswerDigest,
   ProviderRunResult,
@@ -35,6 +37,8 @@ const DEFAULT_PROVIDER_WEIGHT = 1;
 const MIN_PROVIDER_WEIGHT = 0.1;
 const MAX_PROVIDER_WEIGHT = 5;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
+const MERGED_RANKING_STRATEGY = "merged-score-v1" as const;
+const MERGED_SORT_ORDER = ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"] as const;
 
 const EVIDENCE_TABLE_COLUMNS: ReadonlyArray<FusionEvidenceTable["columns"][number]> = [
   {
@@ -301,6 +305,13 @@ function mergeFlags(...flagLists: Array<readonly SearchResultFlag[]>): SearchRes
   return [...new Set(flagLists.flatMap((flags) => [...flags]))].sort();
 }
 
+type MergeCandidate = Omit<FusionMergedResult, "score" | "ranking">;
+
+type ScoredMergeCandidate = MergeCandidate & {
+  score: number;
+  scoreBreakdown: FusionScoreBreakdown;
+};
+
 function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   let penalty = 0;
   if (flags.includes("sponsored")) penalty += 0.65;
@@ -311,23 +322,85 @@ function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   return penalty;
 }
 
-function computeMergedScore(entry: Omit<FusionMergedResult, "score">, sourceTierMode: SourceTierMode): number {
+function mergedSortOrder(sourceTierMode: SourceTierMode): string[] {
+  return sourceTierMode === "off"
+    ? [...MERGED_SORT_ORDER]
+    : ["score:desc", "bestSourceTier:desc", "bestRank:asc", "providerCount:desc", "title:asc"];
+}
+
+function computeMergedScoreBreakdown(
+  entry: MergeCandidate,
+  sourceTierMode: SourceTierMode,
+): FusionScoreBreakdown {
   const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
   const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
   const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
   const tierAdjustment = sourceTierMergedAdjustment(entry.bestSourceTier, sourceTierMode);
-  return Math.max(
-    0.01,
-    bestVariantScore + corroborationBonus + bestRankBonus + tierAdjustment - mergedFlagPenalty(entry.flags),
-  );
+  const flagPenalty = mergedFlagPenalty(entry.flags);
+
+  return {
+    bestVariantScore,
+    corroborationBonus,
+    bestRankBonus,
+    tierAdjustment,
+    flagPenalty,
+    finalScore: Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus + tierAdjustment - flagPenalty),
+  };
+}
+
+function compareMergedCandidates(
+  a: Pick<FusionMergedResult, "score" | "bestSourceTier" | "bestRank" | "providerCount" | "title">,
+  b: Pick<FusionMergedResult, "score" | "bestSourceTier" | "bestRank" | "providerCount" | "title">,
+  sourceTierMode: SourceTierMode,
+): number {
+  if (b.score !== a.score) return b.score - a.score;
+  if (sourceTierMode !== "off") {
+    const tierDelta = compareSourceTierDesc(a.bestSourceTier, b.bestSourceTier);
+    if (tierDelta !== 0) return tierDelta;
+  }
+  if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
+  if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
+  return a.title.localeCompare(b.title);
+}
+
+function buildRankingExplanation(params: {
+  rank: number;
+  title: string;
+  bestRank: number;
+  bestSourceTier: FusionMergedResult["bestSourceTier"];
+  providerCount: number;
+  scoreBreakdown: FusionScoreBreakdown;
+}): FusionMergedResult["ranking"] {
+  return {
+    strategy: MERGED_RANKING_STRATEGY,
+    rank: params.rank,
+    scoreBreakdown: params.scoreBreakdown,
+    tieBreakers: {
+      bestSourceTier: params.bestSourceTier,
+      bestRank: params.bestRank,
+      providerCount: params.providerCount,
+      title: params.title,
+    },
+  };
+}
+
+function emptyRankingMeta(sourceTierMode: SourceTierMode): FusionRankingMeta {
+  return {
+    strategy: MERGED_RANKING_STRATEGY,
+    sortOrder: mergedSortOrder(sourceTierMode),
+    consideredCount: 0,
+    returnedCount: 0,
+    droppedCount: 0,
+    dropped: [],
+  };
 }
 
 function mergeResults(
   results: ProviderRunResult[],
   maxMergedResults: number,
   sourceTierMode: SourceTierMode,
-): FusionMergedResult[] {
-  const merged = new Map<string, Omit<FusionMergedResult, "score">>();
+): { results: FusionMergedResult[]; ranking: FusionRankingMeta } {
+  const merged = new Map<string, MergeCandidate>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -389,42 +462,83 @@ function mergeResults(
     }
   }
 
-  return [...merged.values()]
-    .map((entry) => ({
-      ...entry,
-      providers: [...entry.providers].sort(),
-      providerCount: entry.providers.length,
-      flags: [...entry.flags].sort(),
-      rankings: [...entry.rankings].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        if (sourceTierMode !== "off") {
-          const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
-          if (tierDelta !== 0) return tierDelta;
-        }
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      variants: [...entry.variants].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        if (b.score !== a.score) return b.score - a.score;
-        if (sourceTierMode !== "off") {
-          const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
-          if (tierDelta !== 0) return tierDelta;
-        }
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      score: computeMergedScore(entry, sourceTierMode),
-    }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (sourceTierMode !== "off") {
-        const tierDelta = compareSourceTierDesc(a.bestSourceTier, b.bestSourceTier);
-        if (tierDelta !== 0) return tierDelta;
-      }
-      if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
-      if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
-      return a.title.localeCompare(b.title);
+  const rankedCandidates: ScoredMergeCandidate[] = [...merged.values()]
+    .map((entry) => {
+      const normalized: MergeCandidate = {
+        ...entry,
+        providers: [...entry.providers].sort(),
+        providerCount: entry.providers.length,
+        flags: [...entry.flags].sort(),
+        rankings: [...entry.rankings].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          if (sourceTierMode !== "off") {
+            const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
+            if (tierDelta !== 0) return tierDelta;
+          }
+          return a.providerId.localeCompare(b.providerId);
+        }),
+        variants: [...entry.variants].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          if (b.score !== a.score) return b.score - a.score;
+          if (sourceTierMode !== "off") {
+            const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
+            if (tierDelta !== 0) return tierDelta;
+          }
+          return a.providerId.localeCompare(b.providerId);
+        }),
+      };
+      const scoreBreakdown = computeMergedScoreBreakdown(normalized, sourceTierMode);
+
+      return {
+        ...normalized,
+        score: scoreBreakdown.finalScore,
+        scoreBreakdown,
+      };
     })
-    .slice(0, maxMergedResults);
+    .sort((a, b) => compareMergedCandidates(a, b, sourceTierMode));
+
+  const mergedResults: FusionMergedResult[] = rankedCandidates
+    .slice(0, maxMergedResults)
+    .map((entry, index) => {
+      const { scoreBreakdown, ...base } = entry;
+      return {
+        ...base,
+        ranking: buildRankingExplanation({
+          rank: index + 1,
+          title: base.title,
+          bestRank: base.bestRank,
+          bestSourceTier: base.bestSourceTier,
+          providerCount: base.providerCount,
+          scoreBreakdown,
+        }),
+      };
+    });
+
+  const dropped = rankedCandidates.slice(maxMergedResults).map((entry, index) => ({
+    rank: maxMergedResults + index + 1,
+    reason: "maxMergedResults" as const,
+    title: entry.title,
+    url: entry.url,
+    canonicalUrl: entry.canonicalUrl,
+    score: entry.score,
+    bestRank: entry.bestRank,
+    providerCount: entry.providerCount,
+  }));
+
+  return {
+    results: mergedResults,
+    ranking:
+      rankedCandidates.length === 0
+        ? emptyRankingMeta(sourceTierMode)
+        : {
+            strategy: MERGED_RANKING_STRATEGY,
+            sortOrder: mergedSortOrder(sourceTierMode),
+            consideredCount: rankedCandidates.length,
+            returnedCount: mergedResults.length,
+            droppedCount: dropped.length,
+            dropped,
+          },
+  };
 }
 
 type CitationSupportStats = {
@@ -644,6 +758,7 @@ export async function runSearchFusion(params: {
       discardedResults: [],
       answers: [],
       results: [],
+      ranking: emptyRankingMeta(sourceTierMode),
       evidenceTable: buildEvidenceTable([], []),
       externalContent: {
         untrusted: true,
@@ -698,7 +813,8 @@ export async function runSearchFusion(params: {
     });
   });
 
-  const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults, sourceTierMode);
+  const merged = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults, sourceTierMode);
+  const mergedResults = merged.results;
   const discardedResults = providerRuns.flatMap((run) => run.discardedResults);
   const answers = providerRuns
     .map((run) => run.answer)
@@ -743,6 +859,7 @@ export async function runSearchFusion(params: {
     discardedResults,
     answers,
     results: mergedResults,
+    ranking: merged.ranking,
     evidenceTable: buildEvidenceTable(mergedResults, answers),
     externalContent: {
       untrusted: true,

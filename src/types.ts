@@ -208,6 +208,47 @@ export type SearchResultRanking = {
   flags: SearchResultFlag[];
 };
 
+export type FusionScoreBreakdown = {
+  bestVariantScore: number;
+  corroborationBonus: number;
+  bestRankBonus: number;
+  tierAdjustment: number;
+  flagPenalty: number;
+  finalScore: number;
+};
+
+export type FusionRankingExplanation = {
+  strategy: "merged-score-v1";
+  rank: number;
+  scoreBreakdown: FusionScoreBreakdown;
+  tieBreakers: {
+    bestSourceTier: SearchResultSourceTier;
+    bestRank: number;
+    providerCount: number;
+    title: string;
+  };
+};
+
+export type FusionDroppedResult = {
+  rank: number;
+  reason: "maxMergedResults";
+  title: string;
+  url: string;
+  canonicalUrl: string;
+  score: number;
+  bestRank: number;
+  providerCount: number;
+};
+
+export type FusionRankingMeta = {
+  strategy: "merged-score-v1";
+  sortOrder: string[];
+  consideredCount: number;
+  returnedCount: number;
+  droppedCount: number;
+  dropped: FusionDroppedResult[];
+};
+
 export type FusionMergedResult = {
   title: string;
   url: string;
@@ -222,6 +263,7 @@ export type FusionMergedResult = {
   flags: SearchResultFlag[];
   rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];
+  ranking: FusionRankingExplanation;
 };
 
 export type EvidenceTableColumnKey =
@@ -330,6 +372,7 @@ export type FusionSearchPayload = {
   discardedResults: DiscardedSearchResult[];
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
+  ranking: FusionRankingMeta;
   evidenceTable: FusionEvidenceTable;
   externalContent: {
     untrusted: true;
