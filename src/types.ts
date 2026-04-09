@@ -132,6 +132,37 @@ export type SearchResultRanking = {
   flags: SearchResultFlag[];
 };
 
+export type SearchResultConsensusHint =
+  | "single-provider-support"
+  | "rank-spread"
+  | "citation-heavy"
+  | "title-variance";
+
+export type SearchResultProviderSupport = {
+  providerId: string;
+  bestRank: number;
+  mentionCount: number;
+  sourceTypes: SearchResultSourceType[];
+};
+
+export type SearchResultConsensusSignals = {
+  independentSupportCount: number;
+  totalMentions: number;
+  sourceTypeMentionCounts: Record<SearchResultSourceType, number>;
+  sourceTypeProviderCounts: Record<SearchResultSourceType, number>;
+  providerSupport: SearchResultProviderSupport[];
+  rankAgreement: {
+    bestRank: number;
+    worstRank: number;
+    rankSpread: number;
+    medianRank: number;
+    meanRank: number;
+  };
+  corroborationScore: number;
+  supportLabel: "low" | "medium" | "high";
+  disagreementHints: SearchResultConsensusHint[];
+};
+
 export type FusionMergedResult = {
   title: string;
   url: string;
@@ -145,6 +176,7 @@ export type FusionMergedResult = {
   flags: SearchResultFlag[];
   rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];
+  consensus: SearchResultConsensusSignals;
 };
 
 export type SearchRuntime = {
