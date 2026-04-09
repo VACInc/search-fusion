@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
+import { computeFilterDiagnostics, type FilterArgName } from "./filter-diagnostics.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
@@ -102,6 +103,21 @@ function buildProviderArgs(
   return {
     query: request.query,
     count: providerConfig.count,
+    country: request.country,
+    language: request.language,
+    freshness: request.freshness,
+    date_after: request.date_after,
+    date_before: request.date_before,
+    search_lang: request.search_lang,
+    ui_lang: request.ui_lang,
+  };
+}
+
+/** Extract only the filter args from a request for diagnostic purposes. */
+function extractRequestFilterArgs(
+  request: ProviderSelectionRequest,
+): Partial<Record<FilterArgName, string | undefined>> {
+  return {
     country: request.country,
     language: request.language,
     freshness: request.freshness,
@@ -284,6 +300,10 @@ async function runProvider(params: {
   );
   const retryPolicy = providerConfig.retry;
   const providerArgs = buildProviderArgs(params.request, params.brokerConfig, params.provider.id);
+  const filterDiagnostics = computeFilterDiagnostics({
+    providerId: params.provider.id,
+    sentArgs: extractRequestFilterArgs(params.request),
+  });
   const retryHistory: ProviderRunResult["retryHistory"] = [];
   let lastError: string | undefined;
   let lastRawPayload: Record<string, unknown> | undefined;
@@ -322,6 +342,7 @@ async function runProvider(params: {
         results: normalized.results,
         answer: normalized.answer,
         retryHistory,
+        filterDiagnostics,
       };
     } catch (error) {
       lastError = asErrorMessage(error);
@@ -339,6 +360,7 @@ async function runProvider(params: {
           results: [],
           retryHistory,
           error: lastError,
+          filterDiagnostics,
         };
       }
 
@@ -360,6 +382,7 @@ async function runProvider(params: {
     results: [],
     retryHistory,
     error: lastError ?? "Unknown error",
+    filterDiagnostics,
   };
 }
 
@@ -450,6 +473,7 @@ export async function runSearchFusion(params: {
       attempts: run.attempts,
       configured: run.configured,
       error: run.error,
+      filterDiagnostics: run.filterDiagnostics,
     })),
     providerRuns: providerRuns.map((run) => ({
       provider: run.providerId,
@@ -463,6 +487,7 @@ export async function runSearchFusion(params: {
       results: run.results,
       rawPayload: run.rawPayload,
       retryHistory: run.retryHistory,
+      filterDiagnostics: run.filterDiagnostics,
     })),
     answers,
     results: mergedResults,
@@ -518,6 +543,11 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
     lines.push(
       `- ${detail.provider}: ${detail.ok ? `ok (${detail.rawCount} hits, ${detail.tookMs}ms${attemptText})` : `failed (${detail.tookMs}ms${attemptText})${detail.error ? ` — ${detail.error}` : ""}`}`,
     );
+    if (detail.filterDiagnostics && !detail.filterDiagnostics.filtersFullyApplied) {
+      for (const issue of detail.filterDiagnostics.issues) {
+        lines.push(`  ⚠ [${issue.level}] ${issue.arg}=${JSON.stringify(issue.sentValue)}: ${issue.message}`);
+      }
+    }
   }
 
   if (includeFailures && payload.providersFailed.length > 0) {

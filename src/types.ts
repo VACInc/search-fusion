@@ -1,3 +1,5 @@
+import type { ProviderFilterDiagnostics } from "./filter-diagnostics.js";
+
 export type SearchFusionModeMap = Record<string, string[]>;
 
 export type SearchFusionRetryConfig = {
@@ -121,7 +123,11 @@ export type ProviderRunResult = {
   answer?: ProviderAnswerDigest;
   retryHistory: ProviderRetryEvent[];
   error?: string;
+  /** Structured diagnostics for filter args that were sent but unsupported, ignored, or degraded. Absent for unknown providers. */
+  filterDiagnostics?: ProviderFilterDiagnostics;
 };
+
+export type { ProviderFilterDiagnostics };
 
 export type SearchResultRanking = {
   providerId: string;
@@ -175,6 +181,8 @@ export type FusionSearchPayload = {
     attempts: number;
     configured: boolean;
     error?: string;
+    /** Filter diagnostics for this provider run. Absent when provider is not in the known registry. */
+    filterDiagnostics?: ProviderFilterDiagnostics;
   }>;
   providerRuns: Array<{
     provider: string;
@@ -188,6 +196,8 @@ export type FusionSearchPayload = {
     results: NormalizedSearchResult[];
     rawPayload?: Record<string, unknown>;
     retryHistory: ProviderRetryEvent[];
+    /** Filter diagnostics for this provider run. Absent when provider is not in the known registry. */
+    filterDiagnostics?: ProviderFilterDiagnostics;
   }>;
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];

@@ -155,6 +155,47 @@ pnpm test
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
+- **emits filter diagnostics** so the LLM and callers can see which filter args were silently ignored, unsupported, or only partially applied by each provider
+
+## Filter diagnostics
+
+Search Fusion passes every user-supplied filter arg (`country`, `language`, `freshness`, `date_after`, `date_before`, `search_lang`, `ui_lang`) to every provider verbatim. Providers silently drop args they do not support — without diagnostics, there is no way to know why results did not match the requested filters.
+
+The filter diagnostics feature adds structured per-provider reporting to `providerDetails` and `providerRuns`. Each entry carries:
+
+```ts
+filterDiagnostics?: {
+  providerId: string;
+  filtersFullyApplied: boolean;  // false when any arg was unsupported / ignored / degraded
+  issues: Array<{
+    arg: string;           // e.g. "date_after"
+    sentValue: string;     // e.g. "2024-01-01"
+    level: "unsupported" | "ignored" | "degraded";
+    message: string;       // human-readable description
+  }>;
+};
+```
+
+Support levels:
+
+| Level | Meaning |
+|---|---|
+| `supported` | Provider accepts and applies this filter. No issue emitted. |
+| `unsupported` | Provider does not accept the arg; it is dropped before the request. |
+| `ignored` | Provider receives the arg but does not act on it; results are unaffected. |
+| `degraded` | Provider accepts the arg but its effect is partial or approximate (e.g. freshness maps to coarse time buckets). |
+
+The diagnostics appear inline in `renderFusionSummary` output under each provider's status line. Providers not in the registry emit no diagnostics — no false positives for custom or uncatalogued providers.
+
+Example summary output:
+
+```
+Provider status:
+- tavily: ok (5 hits, 312ms)
+  ⚠ [unsupported] date_after="2024-01-01": tavily does not support the "date_after" filter — the argument is not accepted and will be dropped.
+  ⚠ [ignored] country="US": tavily does not apply the "country" filter — the argument is accepted but has no effect on results.
+- brave: ok (5 hits, 198ms)
+```
 
 ## Next upgrades
 
