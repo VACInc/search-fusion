@@ -91,13 +91,40 @@ test("plugin registers provider and both tools", async () => {
   assert.deepEqual(providerIds, ["brave", "gemini", "tavily"]);
 
   const fusionResult = (await fusionTool?.execute("2", { query: "test", mode: "fast", count: 1 })) as {
-    payload?: { provider?: string; providersQueried?: string[] };
-    data?: { payload?: { provider?: string; providersQueried?: string[] } };
-    details?: { payload?: { provider?: string; providersQueried?: string[] } };
+    payload?: {
+      provider?: string;
+      providersQueried?: string[];
+      evidenceTable?: {
+        rowCount?: number;
+        rows?: Array<{ providerEvidence?: Array<{ providerId?: string }> }>;
+      };
+    };
+    data?: {
+      payload?: {
+        provider?: string;
+        providersQueried?: string[];
+        evidenceTable?: {
+          rowCount?: number;
+          rows?: Array<{ providerEvidence?: Array<{ providerId?: string }> }>;
+        };
+      };
+    };
+    details?: {
+      payload?: {
+        provider?: string;
+        providersQueried?: string[];
+        evidenceTable?: {
+          rowCount?: number;
+          rows?: Array<{ providerEvidence?: Array<{ providerId?: string }> }>;
+        };
+      };
+    };
   };
   const fusionPayload = fusionResult.payload ?? fusionResult.data?.payload ?? fusionResult.details?.payload;
   assert.equal(fusionPayload?.provider, "search-fusion");
   assert.deepEqual(fusionPayload?.providersQueried, ["brave"]);
+  assert.equal(fusionPayload?.evidenceTable?.rowCount, 1);
+  assert.equal(fusionPayload?.evidenceTable?.rows?.[0]?.providerEvidence?.[0]?.providerId, "brave");
 
   const providerTool = provider?.createTool();
   const providerResult = (await providerTool?.execute({ query: "test", mode: "deep" })) as {
