@@ -124,6 +124,43 @@ test("resolveSelectedProviders honors explicit mode", () => {
   assert.deepEqual(selected.map((provider) => provider.id), ["tavily", "gemini"]);
 });
 
+test("resolveSelectedProviders provides built-in starter modes when custom modes are absent", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMode: "balanced",
+    config: {},
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini"]);
+});
+
+test("resolveSelectedProviders lets defaultMode target built-in starter modes", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    config: {
+      defaultMode: "fast",
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+});
+
+test("resolveSelectedProviders treats custom modes as authoritative", () => {
+  assert.throws(
+    () =>
+      resolveSelectedProviders({
+        availableProviders: getDiscovered(),
+        requestMode: "balanced",
+        config: {
+          modes: {
+            custom: ["gemini"],
+          },
+        },
+      }),
+    /Unknown Search Fusion mode: balanced/,
+  );
+});
+
 test("resolveSelectedProviders honors defaultMode before legacy defaultProviders", () => {
   const selected = resolveSelectedProviders({
     availableProviders: getDiscovered(),

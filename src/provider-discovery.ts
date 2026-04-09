@@ -34,6 +34,33 @@ function normalizeModes(modes: SearchFusionConfig["modes"]): Map<string, string[
   );
 }
 
+function buildStarterModes(providers: ResolvedProvider[]): Map<string, string[]> {
+  const providerIds = providers.map((provider) => provider.id);
+  const starterEntries: Array<[string, string[]]> = [
+    ["fast", providerIds.slice(0, 1)],
+    ["balanced", providerIds.slice(0, 2)],
+    ["deep", providerIds],
+  ];
+
+  return new Map(starterEntries.filter((entry) => entry[1].length > 0));
+}
+
+function resolveModes(params: {
+  configuredProviders: ResolvedProvider[];
+  availableProviders: ResolvedProvider[];
+  configModes: SearchFusionConfig["modes"];
+}): Map<string, string[]> {
+  const customModes = normalizeModes(params.configModes);
+  if (customModes.size > 0) {
+    return customModes;
+  }
+
+  const pool = params.configuredProviders.length > 0
+    ? params.configuredProviders
+    : params.availableProviders;
+  return buildStarterModes(pool);
+}
+
 function resolveModeProviders(params: {
   mode: string;
   modes: Map<string, string[]>;
@@ -110,7 +137,11 @@ export function resolveSelectedProviders(params: {
   const configured = available.filter((provider) => provider.configured);
   const requested = normalizeIdList(params.requestProviders);
   const requestMode = normalizeName(params.requestMode);
-  const modes = normalizeModes(params.config.modes);
+  const modes = resolveModes({
+    configuredProviders: configured,
+    availableProviders: available,
+    configModes: params.config.modes,
+  });
 
   const expandAll = requested.includes("all") || requested.includes("*");
   if (expandAll) {
