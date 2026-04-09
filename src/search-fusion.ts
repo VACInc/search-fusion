@@ -10,7 +10,7 @@ import type {
   SearchResultFlag,
   SearchRuntime,
 } from "./types.js";
-import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
+import { discoverProviders, resolveSelectedProvidersWithReasons } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
@@ -375,8 +375,9 @@ export async function runSearchFusion(params: {
     config: params.config,
     selfId: SEARCH_FUSION_PROVIDER_ID,
   });
-  const selectedProviders = resolveSelectedProviders({
+  const { selected: selectedProviders, decisions: routingDecisions } = resolveSelectedProvidersWithReasons({
     availableProviders,
+    selfId: SEARCH_FUSION_PROVIDER_ID,
     requestMode: params.request.mode,
     requestProviders: params.request.providers,
     config: brokerConfig,
@@ -398,6 +399,7 @@ export async function runSearchFusion(params: {
       providerRuns: [],
       answers: [],
       results: [],
+      routingDecisions,
       externalContent: {
         untrusted: true,
         source: "web_search",
@@ -466,6 +468,7 @@ export async function runSearchFusion(params: {
     })),
     answers,
     results: mergedResults,
+    routingDecisions,
     externalContent: {
       untrusted: true,
       source: "web_search",
