@@ -906,6 +906,85 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
 });
 
+test("runSearchFusion routes by intent hint when intentProviders is configured", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        research: ["gemini", "tavily"],
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "deep dive into openclaw plugin sdk",
+      intent: "research",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
+});
+
+test("runSearchFusion intent does not override explicit providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "explicit override test",
+      providers: ["tavily"],
+      intent: "keyword",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["tavily"]);
+});
+
+test("runSearchFusion intent does not override explicit mode", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      modes: {
+        deep: ["gemini", "tavily"],
+      },
+      intentProviders: {
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "mode wins over intent",
+      mode: "deep",
+      intent: "keyword",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
+});
+
+test("runSearchFusion falls through to defaults when intent maps to no available providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        answer: ["perplexity"],
+      },
+      defaultProviders: ["brave"],
+    },
+    request: {
+      query: "fallthrough when intent providers unavailable",
+      intent: "answer",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave"]);
+});
+
 test("runSearchFusion sourceTierMode strict suppresses citation-first noise vs off", async () => {
   const sharedRuntime = createRuntime({
     search: async ({ providerId }) => {

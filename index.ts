@@ -26,6 +26,26 @@ export type { ProviderCapability };
 const SearchFusionParameters = Type.Object(
   {
     query: Type.String({ description: "Search query string." }),
+    intent: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("research"),
+          Type.Literal("keyword"),
+          Type.Literal("answer"),
+          Type.Literal("news"),
+          Type.Literal("local"),
+        ],
+        {
+          description:
+            "Optional intent hint that biases provider selection without overriding explicit providers or mode. " +
+            "research: prefer answer/grounding providers (Gemini, Perplexity, Tavily). " +
+            "keyword: prefer fast index-based providers (Brave, DuckDuckGo). " +
+            "answer: prefer answer-style providers (Gemini, Grok, Perplexity). " +
+            "news: prefer freshness-optimized providers. " +
+            "local: prefer providers with local/map results.",
+        },
+      ),
+    ),
     mode: Type.Optional(
       Type.String({ description: "Optional mode name. Uses configured modes, or built-in starter modes (fast, balanced, deep) when custom modes are not set." }),
     ),

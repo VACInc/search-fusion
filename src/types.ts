@@ -1,5 +1,22 @@
 export type SearchFusionModeMap = Record<string, string[]>;
 
+/**
+ * Hint describing the caller's intent for a search query.
+ *
+ * - `"research"` — in-depth investigation; prefer answer/grounding providers alongside broad
+ *   web search (e.g. Gemini, Perplexity, Tavily).
+ * - `"keyword"` — keyword / classic web search; prefer fast index-based providers
+ *   (e.g. Brave, DuckDuckGo).
+ * - `"answer"` — direct answer expected; prefer answer-style providers
+ *   (e.g. Gemini, Grok, Perplexity).
+ * - `"news"` — recent news / current events; prefer freshness-optimized providers.
+ * - `"local"` — location-aware query; prefer providers with local/map results.
+ *
+ * When an intent is provided it influences provider selection but never overrides
+ * explicit `providers` or `mode` parameters.
+ */
+export type SearchQueryIntent = "research" | "keyword" | "answer" | "news" | "local";
+
 export type SearchFusionRetryConfig = {
   maxAttempts?: number;
   backoffMs?: number;
@@ -19,6 +36,25 @@ export type SourceTierMode = "off" | "balanced" | "strict";
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
+  /**
+   * Provider lists keyed by `SearchQueryIntent`.
+   * When a request carries an `intent` hint and no explicit `providers`/`mode`,
+   * Search Fusion uses this map to pick the provider set.
+   * Falls back to the normal default-resolution chain when the intent is absent
+   * or has no entry here.
+   *
+   * Example:
+   * ```json
+   * "intentProviders": {
+   *   "research": ["gemini", "tavily", "brave"],
+   *   "keyword":  ["brave", "duckduckgo"],
+   *   "answer":   ["gemini", "perplexity"],
+   *   "news":     ["brave", "tavily"],
+   *   "local":    ["brave"]
+   * }
+   * ```
+   */
+  intentProviders?: Partial<Record<SearchQueryIntent, string[]>>;
   defaultProviders?: string[];
   excludeProviders?: string[];
   sourceTierMode?: SourceTierMode;
@@ -32,6 +68,19 @@ export type SearchFusionConfig = {
 
 export type ProviderSelectionRequest = {
   query: string;
+  /**
+   * Optional intent hint that biases provider selection without overriding
+   * explicit `providers` or `mode`.
+   *
+   * Resolution order:
+   * 1. explicit `providers`
+   * 2. explicit `mode`
+   * 3. `intent` → matched against `config.intentProviders`
+   * 4. configured `defaultMode`
+   * 5. configured `defaultProviders`
+   * 6. all configured providers
+   */
+  intent?: SearchQueryIntent;
   mode?: string;
   providers?: string[];
   count?: number;

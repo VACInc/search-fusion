@@ -204,3 +204,112 @@ test("resolveSelectedProviders throws on unknown explicit mode", () => {
     /Unknown Search Fusion mode: chaos/,
   );
 });
+
+test("resolveSelectedProviders routes by intent when intentProviders is configured", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestIntent: "research",
+    config: {
+      intentProviders: {
+        research: ["gemini", "tavily", "brave"],
+        keyword: ["brave", "duckduckgo"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["gemini", "tavily", "brave"]);
+});
+
+test("resolveSelectedProviders routes keyword intent to configured subset", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestIntent: "keyword",
+    config: {
+      intentProviders: {
+        keyword: ["brave", "duckduckgo"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "duckduckgo"]);
+});
+
+test("resolveSelectedProviders intent does not override explicit providers", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestProviders: ["gemini"],
+    requestIntent: "keyword",
+    config: {
+      intentProviders: {
+        keyword: ["brave", "duckduckgo"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["gemini"]);
+});
+
+test("resolveSelectedProviders intent does not override explicit mode", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMode: "fast",
+    requestIntent: "research",
+    config: {
+      modes: {
+        fast: ["brave"],
+      },
+      intentProviders: {
+        research: ["gemini", "tavily"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+});
+
+test("resolveSelectedProviders falls through to defaultMode when intent has no entry", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestIntent: "local",
+    config: {
+      intentProviders: {
+        research: ["gemini"],
+      },
+      defaultMode: "fallback",
+      modes: {
+        fallback: ["brave"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+});
+
+test("resolveSelectedProviders falls through to all configured when intent matches nothing in available providers", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestIntent: "answer",
+    config: {
+      intentProviders: {
+        answer: ["perplexity", "grok"],
+      },
+    },
+  });
+
+  // perplexity and grok are not in the discovered list, falls through
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini", "duckduckgo"]);
+});
+
+test("resolveSelectedProviders normalizes intent casing", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestIntent: "RESEARCH",
+    config: {
+      intentProviders: {
+        research: ["gemini"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["gemini"]);
+});

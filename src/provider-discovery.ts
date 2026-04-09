@@ -1,4 +1,9 @@
-import type { ResolvedProvider, RuntimeWebSearchProvider, SearchFusionConfig } from "./types.js";
+import type {
+  ResolvedProvider,
+  RuntimeWebSearchProvider,
+  SearchFusionConfig,
+  SearchQueryIntent,
+} from "./types.js";
 import { resolveProviderCapabilities } from "./provider-capabilities.js";
 
 function asSearchConfig(config: unknown): Record<string, unknown> | undefined {
@@ -33,6 +38,12 @@ function normalizeModes(modes: SearchFusionConfig["modes"]): Map<string, string[
       .map(([name, providers]) => [normalizeName(name), normalizeIdList(providers)] as const)
       .filter((entry): entry is [string, string[]] => Boolean(entry[0])),
   );
+}
+
+function normalizeIntent(value: string | undefined): SearchQueryIntent | undefined {
+  const normalized = normalizeName(value);
+  const valid: SearchQueryIntent[] = ["research", "keyword", "answer", "news", "local"];
+  return valid.includes(normalized as SearchQueryIntent) ? (normalized as SearchQueryIntent) : undefined;
 }
 
 function buildStarterModes(providers: ResolvedProvider[]): Map<string, string[]> {
@@ -72,6 +83,20 @@ function resolveModeProviders(params: {
   return providerIds
     .map((id) => params.byId.get(id))
     .filter((provider): provider is ResolvedProvider => Boolean(provider));
+}
+
+function resolveIntentProviders(params: {
+  intent: SearchQueryIntent;
+  intentMap: Partial<Record<SearchQueryIntent, string[]>>;
+  byId: Map<string, ResolvedProvider>;
+}): ResolvedProvider[] | undefined {
+  const ids = params.intentMap[params.intent];
+  if (!ids || ids.length === 0) return undefined;
+  const normalized = normalizeIdList(ids);
+  const providers = normalized
+    .map((id) => params.byId.get(id))
+    .filter((provider): provider is ResolvedProvider => Boolean(provider));
+  return providers.length > 0 ? providers : undefined;
 }
 
 export function isProviderConfigured(provider: RuntimeWebSearchProvider, config: unknown): boolean {
@@ -131,6 +156,7 @@ export function resolveSelectedProviders(params: {
   availableProviders: ResolvedProvider[];
   requestMode?: string;
   requestProviders?: string[];
+  requestIntent?: SearchQueryIntent | string;
   config: SearchFusionConfig;
 }): ResolvedProvider[] {
   const excluded = new Set(normalizeIdList(params.config.excludeProviders));
@@ -145,6 +171,7 @@ export function resolveSelectedProviders(params: {
     configModes: params.config.modes,
   });
 
+  // 1. Explicit provider list (including "all" / "*")
   const expandAll = requested.includes("all") || requested.includes("*");
   if (expandAll) {
     return configured.length > 0 ? configured : available;
@@ -154,17 +181,34 @@ export function resolveSelectedProviders(params: {
     return requested.map((id) => byId.get(id)).filter((provider): provider is ResolvedProvider => Boolean(provider));
   }
 
+  // 2. Explicit mode
   if (requestMode) {
     const selectedForMode = resolveModeProviders({ mode: requestMode, modes, byId });
     if (!selectedForMode) {
       throw new Error(`Unknown Search Fusion mode: ${params.requestMode}`);
     }
     if (selectedForMode.length === 0) {
-      throw new Error(`Search Fusion mode \"${params.requestMode}\" resolved to no available providers.`);
+      throw new Error(`Search Fusion mode "${params.requestMode}" resolved to no available providers.`);
     }
     return selectedForMode;
   }
 
+  // 3. Intent hint → intentProviders map
+  const intent = normalizeIntent(
+    typeof params.requestIntent === "string" ? params.requestIntent : undefined,
+  );
+  if (intent && params.config.intentProviders) {
+    const selectedForIntent = resolveIntentProviders({
+      intent,
+      intentMap: params.config.intentProviders,
+      byId,
+    });
+    if (selectedForIntent && selectedForIntent.length > 0) {
+      return selectedForIntent;
+    }
+  }
+
+  // 4. Configured defaultMode
   const defaultMode = normalizeName(params.config.defaultMode);
   if (defaultMode) {
     const selectedForDefaultMode = resolveModeProviders({ mode: defaultMode, modes, byId });
@@ -173,6 +217,7 @@ export function resolveSelectedProviders(params: {
     }
   }
 
+  // 5. Legacy defaultProviders
   const defaults = normalizeIdList(params.config.defaultProviders)
     .map((id) => byId.get(id))
     .filter((provider): provider is ResolvedProvider => Boolean(provider));
@@ -180,5 +225,6 @@ export function resolveSelectedProviders(params: {
     return defaults;
   }
 
+  // 6. All configured providers
   return configured.length > 0 ? configured : available;
 }
