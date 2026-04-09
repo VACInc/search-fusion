@@ -15,15 +15,17 @@
     "properties": {
       "defaultMode": {
         "type": "string",
-        "description": "Optional default mode name to use when a request omits both providers and mode."
+        "description": "Optional default mode name to use when a request omits both providers and mode. Resolves against custom modes, or built-in starter modes when custom modes are absent."
       },
       "modes": {
         "type": "object",
         "additionalProperties": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
-        "description": "User-defined mode map. Each key is a mode name and each value is a provider id list."
+        "description": "User-defined mode map. Each key is a mode name and each value is a provider id list. When omitted, starter modes are auto-generated: fast (1 provider), balanced (2 providers), deep (all providers)."
       },
       "intentProviders": {
         "type": "object",
@@ -59,13 +61,26 @@
       },
       "defaultProviders": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Backward-compatible fallback provider ids when a request omits both providers and mode."
       },
       "excludeProviders": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Provider ids to never use by default."
+      },
+      "sourceTierMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "balanced",
+          "strict"
+        ],
+        "description": "Source-tier reranking policy. off disables tier adjustments, balanced downranks lower-trust classes, strict applies stronger suppression."
       },
       "countPerProvider": {
         "type": "integer",

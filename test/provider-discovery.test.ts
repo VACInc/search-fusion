@@ -68,6 +68,19 @@ test("discoverProviders excludes self and marks configured providers", () => {
   );
 });
 
+test("discoverProviders attaches capability taxonomy tags", () => {
+  const discovered = getDiscovered();
+  const brave = discovered.find((p) => p.id === "brave");
+  const gemini = discovered.find((p) => p.id === "gemini");
+  const tavily = discovered.find((p) => p.id === "tavily");
+  const duckduckgo = discovered.find((p) => p.id === "duckduckgo");
+
+  assert.deepEqual(brave?.capabilities, ["news", "privacy", "results"]);
+  assert.deepEqual(gemini?.capabilities, ["answer", "results"]);
+  assert.deepEqual(tavily?.capabilities, ["answer", "neural", "results"]);
+  assert.deepEqual(duckduckgo?.capabilities, ["free-tier", "privacy", "results"]);
+});
+
 test("resolveSelectedProviders falls back to configured providers by default", () => {
   const selected = resolveSelectedProviders({
     availableProviders: getDiscovered(),
@@ -122,6 +135,43 @@ test("resolveSelectedProviders honors explicit mode", () => {
   });
 
   assert.deepEqual(selected.map((provider) => provider.id), ["tavily", "gemini"]);
+});
+
+test("resolveSelectedProviders provides built-in starter modes when custom modes are absent", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    requestMode: "balanced",
+    config: {},
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave", "gemini"]);
+});
+
+test("resolveSelectedProviders lets defaultMode target built-in starter modes", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: getDiscovered(),
+    config: {
+      defaultMode: "fast",
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["brave"]);
+});
+
+test("resolveSelectedProviders treats custom modes as authoritative", () => {
+  assert.throws(
+    () =>
+      resolveSelectedProviders({
+        availableProviders: getDiscovered(),
+        requestMode: "balanced",
+        config: {
+          modes: {
+            custom: ["gemini"],
+          },
+        },
+      }),
+    /Unknown Search Fusion mode: balanced/,
+  );
 });
 
 test("resolveSelectedProviders honors defaultMode before legacy defaultProviders", () => {
