@@ -139,6 +139,7 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   assert.equal(mergedDocs?.bestRank, 1);
   assert.equal(mergedDocs?.variants.length, 3);
   assert.equal(mergedDocs?.rankings.length, 3);
+  assert.equal(mergedDocs?.bestSourceTier, "high");
   assert.deepEqual(mergedDocs?.flags, ["redirect-wrapper", "tracking-stripped"]);
   assert.equal(
     (mergedDocs?.variants.find((variant) => variant.providerId === "brave")?.rawItem as {
@@ -279,7 +280,9 @@ test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", a
   });
 
   assert.equal(payload.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(payload.results[0]?.bestSourceTier, "high");
   assert.deepEqual(payload.results[1]?.flags, ["sponsored"]);
+  assert.equal(payload.results[1]?.bestSourceTier, "suppressed");
 });
 
 test("runSearchFusion treats keyless providers like DuckDuckGo as configured", async () => {
@@ -625,4 +628,67 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.equal(payload.results.length, 2);
   assert.equal(payload.providerRuns.length, 3);
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
+});
+
+test("runSearchFusion sourceTierMode strict suppresses citation-first noise vs off", async () => {
+  const sharedRuntime = createRuntime({
+    search: async ({ providerId }) => {
+      if (providerId === "gemini") {
+        return {
+          provider: "gemini",
+          result: {
+            results: [
+              {
+                title: "Official docs",
+                url: "https://docs.openclaw.ai/tools/web",
+                score: 0.3,
+              },
+            ],
+            citations: [
+              {
+                title: "Citation-heavy blog",
+                url: "https://example.com/citation-blog",
+                score: 2,
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        provider: providerId ?? "gemini",
+        result: {
+          results: [{ title: "Other", url: `https://example.com/${providerId}` }],
+        },
+      };
+    },
+  }) as never;
+
+  const offPayload = await runSearchFusion({
+    runtime: sharedRuntime,
+    config: {},
+    pluginConfig: {
+      sourceTierMode: "off",
+    },
+    request: {
+      query: "source tier off",
+      providers: ["gemini"],
+    },
+  });
+
+  const strictPayload = await runSearchFusion({
+    runtime: sharedRuntime,
+    config: {},
+    pluginConfig: {
+      sourceTierMode: "strict",
+    },
+    request: {
+      query: "source tier strict",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(offPayload.results[0]?.canonicalUrl, "https://example.com/citation-blog");
+  assert.equal(strictPayload.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(strictPayload.results[1]?.bestSourceTier, "low");
 });

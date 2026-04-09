@@ -57,6 +57,7 @@ Optional plugin config:
           },
           "defaultMode": "balanced",
           "excludeProviders": ["grok"],
+          "sourceTierMode": "balanced",
           "countPerProvider": 5,
           "maxMergedResults": 10,
           "providerTimeoutMs": 15000,
@@ -90,6 +91,11 @@ Resolution order:
 - otherwise all configured providers
 
 `providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
+
+`sourceTierMode` controls deterministic trust-tier downranking:
+- `off`: disables source-tier adjustments
+- `balanced` (default): favors high-trust result classes and downranks low-trust classes
+- `strict`: stronger suppression of lower-trust classes
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -154,12 +160,12 @@ pnpm test
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
+- classifies each hit into a source tier (`high`, `standard`, `low`, `suppressed`) and downranks lower-trust classes deterministically
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades
 
 - provider weighting
 - cost-aware routing modes
-- result reranking beyond URL dedupe
 - caching at the broker layer
 - optional fetch/expansion of top merged hits

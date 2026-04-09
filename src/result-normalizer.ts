@@ -4,7 +4,13 @@ import type {
   ProviderAnswerDigest,
   SearchResultFlag,
   SearchResultSourceType,
+  SourceTierMode,
 } from "./types.js";
+import {
+  classifySourceTier,
+  coerceSourceTierMode,
+  sourceTierMultiplier,
+} from "./source-tier.js";
 import { analyzeUrl, cleanProviderText, resolveSiteName, truncate } from "./text.js";
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -117,6 +123,7 @@ function mapResultArray(params: {
   items: unknown[];
   providerId: string;
   sourceType: SearchResultSourceType;
+  sourceTierMode: SourceTierMode;
   fallbackSnippet?: string;
 }): NormalizedSearchResult[] {
   const mapped: Array<NormalizedSearchResult | null> = params.items.map((item, index) => {
@@ -128,6 +135,7 @@ function mapResultArray(params: {
     const analyzedUrl = analyzeUrl(rawUrl);
     const itemFlags = detectItemFlags(obj, analyzedUrl.url);
     const flags = mergeFlags(analyzedUrl.flags as SearchResultFlag[], itemFlags);
+    const sourceTier = classifySourceTier({ sourceType: params.sourceType, flags });
     const title = firstString(obj, ["title", "name", "headline", "label"]) ?? titleFromUrl(analyzedUrl.url);
     const providerSnippet = cleanProviderText(
       firstString(obj, ["description", "snippet", "content", "body", "text", "summary"]),
@@ -135,7 +143,14 @@ function mapResultArray(params: {
     const snippet = providerSnippet || (params.fallbackSnippet ? truncate(params.fallbackSnippet) : undefined);
     const nativeScore = firstNumber(obj, ["score", "confidence", "relevance"]);
     const baseScore = normalizeNativeScore(nativeScore, index);
-    const score = Math.max(0.05, baseScore * sourceTypeWeight(params.sourceType) - flagPenalty(flags));
+    const preTierScore = Math.max(
+      0.05,
+      baseScore * sourceTypeWeight(params.sourceType) - flagPenalty(flags),
+    );
+    const score = Math.max(
+      0.01,
+      preTierScore * sourceTierMultiplier(sourceTier, params.sourceTierMode),
+    );
 
     return {
       title,
@@ -149,6 +164,7 @@ function mapResultArray(params: {
       nativeScore,
       rawRank: index + 1,
       sourceType: params.sourceType,
+      sourceTier,
       snippetSource: providerSnippet ? "provider" : params.fallbackSnippet ? "answer-fallback" : undefined,
       flags,
       rawItem: item,
@@ -203,6 +219,7 @@ export function extractProviderAnswer(
 export function normalizeProviderPayload(params: {
   providerId: string;
   payload: Record<string, unknown>;
+  sourceTierMode?: SourceTierMode;
 }): {
   results: NormalizedSearchResult[];
   answer?: ProviderAnswerDigest;
@@ -210,6 +227,7 @@ export function normalizeProviderPayload(params: {
 } {
   const payload = params.payload;
   const answer = extractProviderAnswer(payload, params.providerId);
+  const sourceTierMode = coerceSourceTierMode(params.sourceTierMode);
 
   const resultArrays: NormalizedSearchResult[] = [];
   const topLevelResults = Array.isArray(payload.results) ? payload.results : [];
@@ -219,6 +237,7 @@ export function normalizeProviderPayload(params: {
         items: topLevelResults,
         providerId: params.providerId,
         sourceType: "results",
+        sourceTierMode,
         fallbackSnippet: answer?.fullContent,
       }),
     );
@@ -231,6 +250,7 @@ export function normalizeProviderPayload(params: {
         items: topLevelSources,
         providerId: params.providerId,
         sourceType: "sources",
+        sourceTierMode,
         fallbackSnippet: answer?.fullContent,
       }),
     );
@@ -245,6 +265,7 @@ export function normalizeProviderPayload(params: {
         items: nestedWebResults,
         providerId: params.providerId,
         sourceType: "results",
+        sourceTierMode,
         fallbackSnippet: answer?.fullContent,
       }),
     );
@@ -257,6 +278,7 @@ export function normalizeProviderPayload(params: {
         items: citations,
         providerId: params.providerId,
         sourceType: "citations",
+        sourceTierMode,
         fallbackSnippet: answer?.fullContent,
       }),
     );
