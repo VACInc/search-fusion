@@ -20,6 +20,9 @@ const DEFAULT_RETRY_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 750;
 const DEFAULT_RETRY_BACKOFF_MULTIPLIER = 2;
 const DEFAULT_RETRY_MAX_BACKOFF_MS = 5000;
+const DEFAULT_PROVIDER_WEIGHT = 1;
+const MIN_PROVIDER_WEIGHT = 0.1;
+const MAX_PROVIDER_WEIGHT = 5;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
 
 type ResolvedRetryConfig = {
@@ -33,6 +36,7 @@ type ResolvedProviderConfig = {
   count: number;
   timeoutMs: number;
   retry: ResolvedRetryConfig;
+  weight: number;
 };
 
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
@@ -43,6 +47,14 @@ function asConfig(pluginConfig: unknown): SearchFusionConfig {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function roundScore(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
+function applyProviderWeight(score: number, weight: number): number {
+  return Math.max(0.01, roundScore(score * weight));
 }
 
 function resolveProviderConfig(
@@ -89,6 +101,7 @@ function resolveRuntimeProviderConfig(
       120000,
     ),
     retry: resolveRetryConfig(config, providerId),
+    weight: clamp(providerConfig.weight ?? DEFAULT_PROVIDER_WEIGHT, MIN_PROVIDER_WEIGHT, MAX_PROVIDER_WEIGHT),
   };
 }
 
@@ -310,6 +323,11 @@ async function runProvider(params: {
         throw new Error(normalized.error);
       }
 
+      const weightedResults = normalized.results.map((result) => ({
+        ...result,
+        score: applyProviderWeight(result.score, providerConfig.weight),
+      }));
+
       return {
         providerId: params.provider.id,
         label: params.provider.label,
@@ -319,7 +337,7 @@ async function runProvider(params: {
         rawCount: normalized.results.length,
         attempts: attempt,
         rawPayload: response.result,
-        results: normalized.results,
+        results: weightedResults,
         answer: normalized.answer,
         retryHistory,
       };

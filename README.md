@@ -69,10 +69,14 @@ Optional plugin config:
           "providerConfig": {
             "gemini": {
               "timeoutMs": 60000,
+              "weight": 1.3,
               "retry": {
                 "maxAttempts": 4,
                 "backoffMs": 1500
               }
+            },
+            "duckduckgo": {
+              "weight": 0.8
             }
           }
         }
@@ -89,7 +93,9 @@ Resolution order:
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
 
-`providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
+`providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, `count`, and `weight`.
+
+`providerConfig.<id>.weight` is a ranking multiplier (default `1`, range `0.1` to `5`). Higher values boost trusted providers, lower values down-weight noisier ones.
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -150,6 +156,7 @@ pnpm test
 - excludes itself to avoid recursion
 - dedupes by canonical URL
 - retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
+- supports deterministic provider weighting via `providerConfig.<id>.weight` to bias ranking by provider trust/value
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
@@ -158,7 +165,6 @@ pnpm test
 
 ## Next upgrades
 
-- provider weighting
 - cost-aware routing modes
 - result reranking beyond URL dedupe
 - caching at the broker layer

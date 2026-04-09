@@ -465,6 +465,93 @@ test("runSearchFusion passes providerConfig timeout overrides", async () => {
   assert.deepEqual(payload.providersSucceeded, ["gemini"]);
 });
 
+test("runSearchFusion applies provider weight multipliers to ranking scores", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "brave",
+        result: {
+          results: [
+            {
+              title: providerId === "brave" ? "Alpha source" : "Zulu source",
+              url: providerId === "brave" ? "https://example.com/alpha" : "https://example.com/zulu",
+              description: `${providerId} result`,
+            },
+          ],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 0.5,
+        },
+        gemini: {
+          weight: 1.5,
+        },
+      },
+    },
+    request: {
+      query: "provider weighting",
+      providers: ["brave", "gemini"],
+    },
+  });
+
+  const braveRun = payload.providerRuns.find((run) => run.provider === "brave");
+  const geminiRun = payload.providerRuns.find((run) => run.provider === "gemini");
+
+  assert.equal(braveRun?.results[0]?.score, 0.5);
+  assert.equal(geminiRun?.results[0]?.score, 1.5);
+  assert.equal(payload.results[0]?.canonicalUrl, "https://example.com/zulu");
+});
+
+test("runSearchFusion clamps provider weight overrides to a safe range", async () => {
+  const runtime = createRuntime({
+    search: async ({ providerId }) => ({
+      provider: providerId ?? "brave",
+      result: {
+        results: [{ title: "Seed result", url: `https://example.com/${providerId ?? "brave"}` }],
+      },
+    }),
+  }) as never;
+
+  const highWeightPayload = await runSearchFusion({
+    runtime,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 100,
+        },
+      },
+    },
+    request: {
+      query: "high provider weight",
+      providers: ["brave"],
+    },
+  });
+
+  const lowWeightPayload = await runSearchFusion({
+    runtime,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 0,
+        },
+      },
+    },
+    request: {
+      query: "low provider weight",
+      providers: ["brave"],
+    },
+  });
+
+  assert.equal(highWeightPayload.providerRuns[0]?.results[0]?.score, 5);
+  assert.equal(lowWeightPayload.providerRuns[0]?.results[0]?.score, 0.1);
+});
+
 test("runSearchFusion still honors legacy providerRetries overrides", async () => {
   let attempts = 0;
   const payload = await runSearchFusion({
