@@ -146,6 +146,28 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     })?.metadata?.provider,
     "brave",
   );
+
+  assert.equal(payload.evidenceTable.version, 1);
+  assert.equal(payload.evidenceTable.rowCount, payload.results.length);
+  assert.deepEqual(payload.evidenceTable.columns.map((column) => column.key), [
+    "rank",
+    "title",
+    "url",
+    "providers",
+    "providerCount",
+    "bestRank",
+    "score",
+    "answerCitationCount",
+    "flags",
+  ]);
+  const evidenceDocs = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+  assert.equal(evidenceDocs?.rank, 1);
+  assert.deepEqual(evidenceDocs?.providers, ["brave", "duckduckgo", "tavily"]);
+  assert.equal(evidenceDocs?.providerEvidence.length, 3);
+  assert.equal(evidenceDocs?.answerCitationSupport.count, 0);
+
   assert.equal(payload.providersSucceeded.length, 3);
 });
 
@@ -274,6 +296,65 @@ test("runSearchFusion preserves full answer content and raw payloads for answer-
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
   assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+
+  const docsEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+  const githubEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://github.com/openclaw/openclaw",
+  );
+  assert.equal(docsEvidence?.answerCitationSupport.count, 1);
+  assert.deepEqual(docsEvidence?.answerCitationSupport.providers, ["gemini"]);
+  assert.equal(githubEvidence?.answerCitationSupport.count, 1);
+  assert.deepEqual(githubEvidence?.providerEvidence.map((entry) => entry.sourceType), ["citations"]);
+});
+
+test("runSearchFusion evidenceTable tracks citation counts and unique providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      providers: [
+        { id: "gemini", label: "Gemini", configured: true, autoDetectOrder: 20 },
+        { id: "kimi", label: "Kimi", configured: true, autoDetectOrder: 25 },
+        { id: "search-fusion", label: "Search Fusion", configured: true, autoDetectOrder: 999 },
+      ],
+      search: async ({ providerId }) => {
+        if (providerId === "gemini") {
+          return {
+            provider: "gemini",
+            result: {
+              content: "Gemini synthesis",
+              citations: [
+                "https://docs.openclaw.ai/tools/web",
+                "https://docs.openclaw.ai/tools/web?utm_source=gemini",
+              ],
+            },
+          };
+        }
+
+        return {
+          provider: providerId ?? "kimi",
+          result: {
+            content: "Kimi synthesis",
+            citations: ["https://docs.openclaw.ai/tools/web"],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "citation corroboration",
+      providers: ["gemini", "kimi"],
+    },
+  });
+
+  const docsEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+
+  assert.equal(docsEvidence?.answerCitationSupport.count, 3);
+  assert.equal(docsEvidence?.answerCitationSupport.providerCount, 2);
+  assert.deepEqual(docsEvidence?.answerCitationSupport.providers, ["gemini", "kimi"]);
 });
 
 test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", async () => {

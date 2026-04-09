@@ -160,6 +160,64 @@ export type FusionMergedResult = {
   variants: NormalizedSearchResult[];
 };
 
+export type EvidenceTableColumnKey =
+  | "rank"
+  | "title"
+  | "url"
+  | "providers"
+  | "providerCount"
+  | "bestRank"
+  | "score"
+  | "answerCitationCount"
+  | "flags";
+
+export type EvidenceTableColumn = {
+  key: EvidenceTableColumnKey;
+  label: string;
+  description: string;
+};
+
+export type FusionEvidenceProvider = {
+  providerId: string;
+  rawRank: number;
+  score: number;
+  nativeScore?: number;
+  sourceType: SearchResultSourceType;
+  snippet?: string;
+  snippetSource?: "provider" | "answer-fallback";
+  flags: SearchResultFlag[];
+};
+
+export type FusionEvidenceCitationSupport = {
+  count: number;
+  providerCount: number;
+  providers: string[];
+};
+
+export type FusionEvidenceRow = {
+  rowId: string;
+  rank: number;
+  title: string;
+  url: string;
+  canonicalUrl: string;
+  siteName?: string;
+  snippet?: string;
+  providers: string[];
+  providerCount: number;
+  bestRank: number;
+  score: number;
+  flags: SearchResultFlag[];
+  answerCitationSupport: FusionEvidenceCitationSupport;
+  providerEvidence: FusionEvidenceProvider[];
+};
+
+export type FusionEvidenceTable = {
+  version: 1;
+  columns: EvidenceTableColumn[];
+  rowCount: number;
+  rows: FusionEvidenceRow[];
+};
+
 export type SearchRuntime = {
   webSearch: {
     listProviders: (params?: { config?: unknown }) => RuntimeWebSearchProvider[];
@@ -208,6 +266,7 @@ export type FusionSearchPayload = {
   discardedResults: DiscardedSearchResult[];
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
+  evidenceTable: FusionEvidenceTable;
   externalContent: {
     untrusted: true;
     source: "web_search";

@@ -1,6 +1,9 @@
 import type {
+  FusionEvidenceRow,
+  FusionEvidenceTable,
   FusionMergedResult,
   FusionSearchPayload,
+  ProviderAnswerDigest,
   ProviderRunResult,
   ProviderSelectionRequest,
   ResolvedProvider,
@@ -12,6 +15,7 @@ import type {
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
+import { canonicalizeUrl } from "./text.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
 const DEFAULT_MAX_MERGED_RESULTS = 10;
@@ -21,6 +25,54 @@ const DEFAULT_RETRY_BACKOFF_MS = 750;
 const DEFAULT_RETRY_BACKOFF_MULTIPLIER = 2;
 const DEFAULT_RETRY_MAX_BACKOFF_MS = 5000;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
+
+const EVIDENCE_TABLE_COLUMNS: ReadonlyArray<FusionEvidenceTable["columns"][number]> = [
+  {
+    key: "rank",
+    label: "Rank",
+    description: "Merged ordering position after dedupe and score computation.",
+  },
+  {
+    key: "title",
+    label: "Title",
+    description: "Best available title for the merged URL.",
+  },
+  {
+    key: "url",
+    label: "URL",
+    description: "Display URL for the merged hit.",
+  },
+  {
+    key: "providers",
+    label: "Providers",
+    description: "Provider ids that independently surfaced this URL.",
+  },
+  {
+    key: "providerCount",
+    label: "Provider Count",
+    description: "How many providers corroborated this URL.",
+  },
+  {
+    key: "bestRank",
+    label: "Best Rank",
+    description: "Best raw rank observed across providers.",
+  },
+  {
+    key: "score",
+    label: "Merged Score",
+    description: "Final broker score used for merged ordering.",
+  },
+  {
+    key: "answerCitationCount",
+    label: "Answer Citations",
+    description: "How many answer-style provider citations referenced this URL.",
+  },
+  {
+    key: "flags",
+    label: "Flags",
+    description: "Deterministic flags inferred during normalization and merge.",
+  },
+];
 
 type ResolvedRetryConfig = {
   maxAttempts: number;
@@ -330,6 +382,81 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
     .slice(0, maxMergedResults);
 }
 
+type CitationSupportStats = {
+  count: number;
+  providers: Set<string>;
+};
+
+function buildEvidenceTable(
+  results: FusionMergedResult[],
+  answers: ProviderAnswerDigest[],
+): FusionEvidenceTable {
+  const citationSupportByUrl = new Map<string, CitationSupportStats>();
+
+  for (const answer of answers) {
+    for (const citationUrl of answer.citations) {
+      const canonicalCitationUrl = canonicalizeUrl(citationUrl);
+      if (!canonicalCitationUrl) {
+        continue;
+      }
+
+      const existing = citationSupportByUrl.get(canonicalCitationUrl);
+      if (existing) {
+        existing.count += 1;
+        existing.providers.add(answer.providerId);
+        continue;
+      }
+
+      citationSupportByUrl.set(canonicalCitationUrl, {
+        count: 1,
+        providers: new Set([answer.providerId]),
+      });
+    }
+  }
+
+  const rows: FusionEvidenceRow[] = results.map((result, index) => {
+    const citationSupport = citationSupportByUrl.get(result.canonicalUrl);
+    const citationProviders = citationSupport ? [...citationSupport.providers].sort() : [];
+
+    return {
+      rowId: result.canonicalUrl,
+      rank: index + 1,
+      title: result.title,
+      url: result.url,
+      canonicalUrl: result.canonicalUrl,
+      siteName: result.siteName,
+      snippet: result.snippet,
+      providers: [...result.providers],
+      providerCount: result.providerCount,
+      bestRank: result.bestRank,
+      score: result.score,
+      flags: [...result.flags],
+      answerCitationSupport: {
+        count: citationSupport?.count ?? 0,
+        providerCount: citationProviders.length,
+        providers: citationProviders,
+      },
+      providerEvidence: result.variants.map((variant) => ({
+        providerId: variant.providerId,
+        rawRank: variant.rawRank,
+        score: variant.score,
+        nativeScore: variant.nativeScore,
+        sourceType: variant.sourceType,
+        snippet: variant.snippet,
+        snippetSource: variant.snippetSource,
+        flags: [...variant.flags],
+      })),
+    } satisfies FusionEvidenceRow;
+  });
+
+  return {
+    version: 1,
+    columns: EVIDENCE_TABLE_COLUMNS.map((column) => ({ ...column })),
+    rowCount: rows.length,
+    rows,
+  };
+}
+
 async function runProvider(params: {
   runtime: SearchRuntime;
   config: unknown;
@@ -463,6 +590,7 @@ export async function runSearchFusion(params: {
       discardedResults: [],
       answers: [],
       results: [],
+      evidenceTable: buildEvidenceTable([], []),
       externalContent: {
         untrusted: true,
         source: "web_search",
@@ -560,6 +688,7 @@ export async function runSearchFusion(params: {
     discardedResults,
     answers,
     results: mergedResults,
+    evidenceTable: buildEvidenceTable(mergedResults, answers),
     externalContent: {
       untrusted: true,
       source: "web_search",
