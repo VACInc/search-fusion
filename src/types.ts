@@ -59,6 +59,12 @@ export type ResolvedProvider = {
   hint?: string;
   autoDetectOrder?: number;
   configured: boolean;
+  /**
+   * Capability tags declared for this provider by the capability taxonomy.
+   * An empty array means the provider is treated as general-purpose / unknown.
+   * See `src/provider-capabilities.ts` for the full vocabulary.
+   */
+  capabilities?: import("./provider-capabilities.js").ProviderCapability[];
 };
 
 export type SearchResultFlag =

@@ -1,4 +1,5 @@
 import type { ResolvedProvider, RuntimeWebSearchProvider, SearchFusionConfig } from "./types.js";
+import { resolveProviderCapabilities } from "./provider-capabilities.js";
 
 function asSearchConfig(config: unknown): Record<string, unknown> | undefined {
   const maybe = (config as { tools?: { web?: { search?: Record<string, unknown> } } } | undefined)?.tools?.web
@@ -116,6 +117,7 @@ export function discoverProviders(params: {
       hint: provider.hint,
       autoDetectOrder: provider.autoDetectOrder,
       configured: isProviderConfigured(provider, params.config),
+      capabilities: [...resolveProviderCapabilities(provider.id)],
     }))
     .sort((a, b) => {
       const orderA = a.autoDetectOrder ?? Number.MAX_SAFE_INTEGER;

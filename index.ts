@@ -1,8 +1,27 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { discoverProviders } from "./src/provider-discovery.js";
+import {
+  ALL_PROVIDER_CAPABILITIES,
+  filterByAnyCapability,
+  filterByCapabilities,
+  hasCapability,
+  resolveProviderCapabilities,
+  type ProviderCapability,
+} from "./src/provider-capabilities.js";
 import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
 import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
+
+// Re-export the capability taxonomy so consumers can import directly from the
+// plugin entry point without knowing internal file structure.
+export {
+  ALL_PROVIDER_CAPABILITIES,
+  filterByAnyCapability,
+  filterByCapabilities,
+  hasCapability,
+  resolveProviderCapabilities,
+};
+export type { ProviderCapability };
 
 const SearchFusionParameters = Type.Object(
   {
@@ -170,7 +189,7 @@ const plugin = {
           : providers;
         const lines = visibleProviders.map(
           (provider) =>
-            `- ${provider.id}: ${provider.label}${provider.configured ? " [configured]" : " [not configured]"}${provider.hint ? ` — ${provider.hint}` : ""}`,
+            `- ${provider.id}: ${provider.label}${provider.configured ? " [configured]" : " [not configured]"}${(provider.capabilities ?? []).length > 0 ? ` [${(provider.capabilities ?? []).join(", ")}]` : ""}${provider.hint ? ` — ${provider.hint}` : ""}`,
         );
 
         return asJsonResult({
