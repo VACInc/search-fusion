@@ -84,6 +84,11 @@
           }
         }
       },
+      "answerTreatment": {
+        "type": "string",
+        "enum": ["hybrid", "citations-only", "prominent-digests"],
+        "description": "How answer-style providers are represented. 'hybrid' keeps digest + hits, 'citations-only' keeps only citation hits, 'prominent-digests' keeps both but surfaces digests first in summaries."
+      },
       "providerConfig": {
         "type": "object",
         "description": "Per-provider overrides keyed by provider id.",
@@ -133,6 +138,11 @@
                   "description": "Maximum retry backoff for this provider in milliseconds."
                 }
               }
+            },
+            "answerTreatment": {
+              "type": "string",
+              "enum": ["hybrid", "citations-only", "prominent-digests"],
+              "description": "Per-provider override for answer-style treatment."
             }
           }
         }

@@ -4,6 +4,7 @@ import type {
   ProviderRunResult,
   ProviderSelectionRequest,
   ResolvedProvider,
+  SearchFusionAnswerTreatment,
   SearchFusionConfig,
   SearchFusionProviderConfig,
   SearchFusionRetryConfig,
@@ -20,6 +21,7 @@ const DEFAULT_RETRY_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_BACKOFF_MS = 750;
 const DEFAULT_RETRY_BACKOFF_MULTIPLIER = 2;
 const DEFAULT_RETRY_MAX_BACKOFF_MS = 5000;
+const DEFAULT_ANSWER_TREATMENT: SearchFusionAnswerTreatment = "hybrid";
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
 
 type ResolvedRetryConfig = {
@@ -33,6 +35,7 @@ type ResolvedProviderConfig = {
   count: number;
   timeoutMs: number;
   retry: ResolvedRetryConfig;
+  answerTreatment: SearchFusionAnswerTreatment;
 };
 
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
@@ -70,6 +73,42 @@ function resolveRetryConfig(config: SearchFusionConfig, providerId: string): Res
   };
 }
 
+function isAnswerTreatment(value: unknown): value is SearchFusionAnswerTreatment {
+  return value === "hybrid" || value === "citations-only" || value === "prominent-digests";
+}
+
+function resolveDefaultAnswerTreatment(config: SearchFusionConfig): SearchFusionAnswerTreatment {
+  return isAnswerTreatment(config.answerTreatment) ? config.answerTreatment : DEFAULT_ANSWER_TREATMENT;
+}
+
+function resolveAnswerTreatment(
+  config: SearchFusionConfig,
+  providerId: string,
+): SearchFusionAnswerTreatment {
+  const providerTreatment = resolveProviderConfig(config, providerId).answerTreatment;
+  const resolved = providerTreatment ?? config.answerTreatment;
+  return isAnswerTreatment(resolved) ? resolved : DEFAULT_ANSWER_TREATMENT;
+}
+
+function applyAnswerTreatment(params: {
+  treatment: SearchFusionAnswerTreatment;
+  normalized: ReturnType<typeof normalizeProviderPayload>;
+}): ReturnType<typeof normalizeProviderPayload> {
+  if (!params.normalized.answer) {
+    return params.normalized;
+  }
+
+  if (params.treatment === "citations-only") {
+    return {
+      ...params.normalized,
+      answer: undefined,
+      results: params.normalized.results.filter((result) => result.sourceType === "citations"),
+    };
+  }
+
+  return params.normalized;
+}
+
 function resolveRuntimeProviderConfig(
   request: ProviderSelectionRequest,
   config: SearchFusionConfig,
@@ -89,6 +128,7 @@ function resolveRuntimeProviderConfig(
       120000,
     ),
     retry: resolveRetryConfig(config, providerId),
+    answerTreatment: resolveAnswerTreatment(config, providerId),
   };
 }
 
@@ -310,17 +350,23 @@ async function runProvider(params: {
         throw new Error(normalized.error);
       }
 
+      const treated = applyAnswerTreatment({
+        treatment: providerConfig.answerTreatment,
+        normalized,
+      });
+
       return {
         providerId: params.provider.id,
         label: params.provider.label,
         configured: params.provider.configured,
+        answerTreatment: providerConfig.answerTreatment,
         ok: true,
         tookMs: Date.now() - start,
-        rawCount: normalized.results.length,
+        rawCount: treated.results.length,
         attempts: attempt,
         rawPayload: response.result,
-        results: normalized.results,
-        answer: normalized.answer,
+        results: treated.results,
+        answer: treated.answer,
         retryHistory,
       };
     } catch (error) {
@@ -331,6 +377,7 @@ async function runProvider(params: {
           providerId: params.provider.id,
           label: params.provider.label,
           configured: params.provider.configured,
+          answerTreatment: providerConfig.answerTreatment,
           ok: false,
           tookMs: Date.now() - start,
           rawCount: 0,
@@ -352,6 +399,7 @@ async function runProvider(params: {
     providerId: params.provider.id,
     label: params.provider.label,
     configured: params.provider.configured,
+    answerTreatment: providerConfig.answerTreatment,
     ok: false,
     tookMs: Date.now() - start,
     rawCount: 0,
@@ -370,6 +418,7 @@ export async function runSearchFusion(params: {
   request: ProviderSelectionRequest;
 }): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
+  const defaultAnswerTreatment = resolveDefaultAnswerTreatment(brokerConfig);
   const availableProviders = discoverProviders({
     providers: params.runtime.webSearch.listProviders({ config: params.config }),
     config: params.config,
@@ -386,6 +435,7 @@ export async function runSearchFusion(params: {
     return {
       query: params.request.query,
       provider: SEARCH_FUSION_PROVIDER_ID,
+      answerTreatment: defaultAnswerTreatment,
       tookMs: 0,
       count: 0,
       configuredProviders: availableProviders
@@ -434,6 +484,7 @@ export async function runSearchFusion(params: {
   return {
     query: params.request.query,
     provider: SEARCH_FUSION_PROVIDER_ID,
+    answerTreatment: defaultAnswerTreatment,
     tookMs: Date.now() - start,
     count: mergedResults.length,
     configuredProviders: availableProviders.filter((provider) => provider.configured).map((provider) => provider.id),
@@ -449,6 +500,7 @@ export async function runSearchFusion(params: {
       rawCount: run.rawCount,
       attempts: run.attempts,
       configured: run.configured,
+      answerTreatment: run.answerTreatment,
       error: run.error,
     })),
     providerRuns: providerRuns.map((run) => ({
@@ -458,6 +510,7 @@ export async function runSearchFusion(params: {
       rawCount: run.rawCount,
       attempts: run.attempts,
       configured: run.configured,
+      answerTreatment: run.answerTreatment,
       error: run.error,
       answer: run.answer,
       results: run.results,
@@ -480,32 +533,50 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
   lines.push(
     `Search broker ran ${payload.providersQueried.length} provider${payload.providersQueried.length === 1 ? "" : "s"} in ${payload.tookMs}ms.`,
   );
+  lines.push(`Answer treatment: ${payload.answerTreatment}.`);
 
-  if (payload.results.length > 0) {
+  const appendAnswers = () => {
+    if (payload.answers.length === 0) {
+      return;
+    }
     lines.push("");
-    lines.push(`Merged results (${payload.results.length}):`);
-    payload.results.forEach((result, index) => {
-      lines.push(`${index + 1}. ${result.title}`);
-      lines.push(`   ${result.url}`);
-      lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
-      if (result.flags.length > 0) {
-        lines.push(`   Flags: ${result.flags.join(", ")}`);
-      }
-      if (result.snippet) {
-        lines.push(`   ${result.snippet}`);
-      }
-    });
-  } else {
-    lines.push("");
-    lines.push("No merged results.");
-  }
-
-  if (payload.answers.length > 0) {
-    lines.push("");
-    lines.push("Provider answer digests:");
+    lines.push(
+      payload.answerTreatment === "prominent-digests"
+        ? "Prominent provider answer digests:"
+        : "Provider answer digests:",
+    );
     for (const answer of payload.answers) {
       lines.push(`- ${answer.providerId}: ${answer.summary}`);
     }
+  };
+
+  const appendMergedResults = () => {
+    lines.push("");
+    if (payload.results.length > 0) {
+      lines.push(`Merged results (${payload.results.length}):`);
+      payload.results.forEach((result, index) => {
+        lines.push(`${index + 1}. ${result.title}`);
+        lines.push(`   ${result.url}`);
+        lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
+        if (result.flags.length > 0) {
+          lines.push(`   Flags: ${result.flags.join(", ")}`);
+        }
+        if (result.snippet) {
+          lines.push(`   ${result.snippet}`);
+        }
+      });
+      return;
+    }
+
+    lines.push("No merged results.");
+  };
+
+  if (payload.answerTreatment === "prominent-digests" && payload.answers.length > 0) {
+    appendAnswers();
+    appendMergedResults();
+  } else {
+    appendMergedResults();
+    appendAnswers();
   }
 
   lines.push("");

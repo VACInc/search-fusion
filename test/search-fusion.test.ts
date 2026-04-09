@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runSearchFusion } from "../src/search-fusion.js";
+import { renderFusionSummary, runSearchFusion } from "../src/search-fusion.js";
 
 function createRuntime(overrides?: {
   providers?: Array<{
@@ -236,6 +236,94 @@ test("runSearchFusion preserves full answer content and raw payloads for answer-
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
   assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+});
+
+test("runSearchFusion supports citations-only answer treatment", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      answerTreatment: "citations-only",
+    },
+    request: {
+      query: "openclaw grounding",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(payload.answerTreatment, "citations-only");
+  assert.equal(payload.answers.length, 0);
+  assert.equal(payload.providerDetails[0]?.answerTreatment, "citations-only");
+  assert.equal(payload.providerRuns[0]?.answerTreatment, "citations-only");
+  assert.equal(payload.providerRuns[0]?.answer, undefined);
+  assert.equal(payload.providerRuns[0]?.results.length, 2);
+  assert.ok(payload.providerRuns[0]?.results.every((result) => result.sourceType === "citations"));
+});
+
+test("runSearchFusion honors per-provider answer treatment overrides", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      answerTreatment: "citations-only",
+      providerConfig: {
+        gemini: {
+          answerTreatment: "prominent-digests",
+        },
+      },
+    },
+    request: {
+      query: "openclaw grounding",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(payload.answerTreatment, "citations-only");
+  assert.equal(payload.providerDetails[0]?.answerTreatment, "prominent-digests");
+  assert.equal(payload.providerRuns[0]?.answerTreatment, "prominent-digests");
+  assert.equal(payload.answers.length, 1);
+  assert.equal(payload.answers[0]?.providerId, "gemini");
+});
+
+test("runSearchFusion falls back to hybrid answer treatment for invalid config values", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      answerTreatment: "not-a-real-treatment",
+    },
+    request: {
+      query: "openclaw grounding",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(payload.answerTreatment, "hybrid");
+  assert.equal(payload.providerRuns[0]?.answerTreatment, "hybrid");
+  assert.equal(payload.answers.length, 1);
+});
+
+test("renderFusionSummary surfaces prominent digests before merged results", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      answerTreatment: "prominent-digests",
+    },
+    request: {
+      query: "openclaw grounding",
+      providers: ["gemini", "tavily"],
+    },
+  });
+
+  const summary = renderFusionSummary(payload);
+  const digestIndex = summary.indexOf("Prominent provider answer digests:");
+  const mergedIndex = summary.indexOf("Merged results (");
+
+  assert.match(summary, /Answer treatment: prominent-digests\./);
+  assert.ok(digestIndex >= 0);
+  assert.ok(mergedIndex >= 0);
+  assert.ok(digestIndex < mergedIndex);
 });
 
 test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", async () => {

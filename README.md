@@ -66,9 +66,11 @@ Optional plugin config:
             "backoffMultiplier": 2,
             "maxBackoffMs": 5000
           },
+          "answerTreatment": "hybrid",
           "providerConfig": {
             "gemini": {
               "timeoutMs": 60000,
+              "answerTreatment": "prominent-digests",
               "retry": {
                 "maxAttempts": 4,
                 "backoffMs": 1500
@@ -89,7 +91,17 @@ Resolution order:
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
 
-`providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
+`providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, `count`, and `answerTreatment`.
+
+Answer treatment modes:
+- `hybrid` (default): keep answer digests and keep merged hits, including citation-derived hits
+- `citations-only`: for answer-style providers, keep only citation-derived hits and suppress answer digests
+- `prominent-digests`: keep both, but show provider answer digests before merged results in text summaries
+
+Answer treatment resolution order:
+- `providerConfig.<id>.answerTreatment`
+- top-level `answerTreatment`
+- default `hybrid`
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -154,7 +166,8 @@ pnpm test
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
-- carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
+- supports configurable answer-provider treatment via `answerTreatment` / `providerConfig.<id>.answerTreatment` (`hybrid`, `citations-only`, `prominent-digests`)
+- carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits when treatment keeps digests enabled
 
 ## Next upgrades
 
