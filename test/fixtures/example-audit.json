@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-04-09T14:00:00.000Z",
+  "label": "openclaw plugin sdk docs",
+  "request": {
+    "query": "openclaw plugin sdk runtime helpers",
+    "providers": ["brave", "tavily"],
+    "count": 5,
+    "maxMergedResults": 10
+  },
+  "pluginConfig": {
+    "retry": {
+      "maxAttempts": 3,
+      "backoffMs": 750,
+      "backoffMultiplier": 2,
+      "maxBackoffMs": 5000
+    }
+  },
+  "summary": {
+    "tookMs": 843,
+    "mergedResultCount": 3,
+    "providersQueried": ["brave", "tavily"],
+    "providersSucceeded": ["brave", "tavily"],
+    "providersFailed": [],
+    "answerProviders": []
+  },
+  "providerSummaries": [
+    {
+      "provider": "brave",
+      "configured": true,
+      "ok": true,
+      "rawCount": 2,
+      "tookMs": 412,
+      "attempts": 1,
+      "flaggedResultFraction": 0,
+      "observedFlags": ["tracking-stripped"],
+      "caveats": []
+    },
+    {
+      "provider": "tavily",
+      "configured": true,
+      "ok": true,
+      "rawCount": 2,
+      "tookMs": 843,
+      "attempts": 1,
+      "flaggedResultFraction": 0,
+      "observedFlags": [],
+      "caveats": []
+    }
+  ],
+  "caveats": [],
+  "payload": {
+    "query": "openclaw plugin sdk runtime helpers",
+    "provider": "search-fusion",
+    "tookMs": 843,
+    "count": 3,
+    "configuredProviders": ["brave", "tavily"],
+    "providersQueried": ["brave", "tavily"],
+    "providersSucceeded": ["brave", "tavily"],
+    "providersFailed": [],
+    "providerDetails": [
+      {
+        "provider": "brave",
+        "ok": true,
+        "tookMs": 412,
+        "rawCount": 2,
+        "attempts": 1,
+        "configured": true
+      },
+      {
+        "provider": "tavily",
+        "ok": true,
+        "tookMs": 843,
+        "rawCount": 2,
+        "attempts": 1,
+        "configured": true
+      }
+    ],
+    "providerRuns": [
+      {
+        "provider": "brave",
+        "ok": true,
+        "tookMs": 412,
+        "rawCount": 2,
+        "attempts": 1,
+        "configured": true,
+        "results": [
+          {
+            "title": "OpenClaw Plugin SDK",
+            "url": "https://docs.openclaw.ai/plugins/sdk",
+            "originalUrl": "https://docs.openclaw.ai/plugins/sdk?utm_source=brave",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "snippet": "The plugin SDK exposes runtime helpers for web search, tools, and configuration.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "brave",
+            "score": 0.9,
+            "rawRank": 1,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": ["tracking-stripped"]
+          },
+          {
+            "title": "OpenClaw Plugin Guide",
+            "url": "https://docs.openclaw.ai/plugins/guide",
+            "originalUrl": "https://docs.openclaw.ai/plugins/guide",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/guide",
+            "snippet": "Step-by-step guide to writing and registering OpenClaw plugins.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "brave",
+            "score": 0.82,
+            "rawRank": 2,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          }
+        ],
+        "rawPayload": {
+          "results": [
+            {
+              "title": "OpenClaw Plugin SDK",
+              "url": "https://docs.openclaw.ai/plugins/sdk?utm_source=brave",
+              "description": "The plugin SDK exposes runtime helpers for web search, tools, and configuration."
+            },
+            {
+              "title": "OpenClaw Plugin Guide",
+              "url": "https://docs.openclaw.ai/plugins/guide",
+              "description": "Step-by-step guide to writing and registering OpenClaw plugins."
+            }
+          ]
+        },
+        "retryHistory": []
+      },
+      {
+        "provider": "tavily",
+        "ok": true,
+        "tookMs": 843,
+        "rawCount": 2,
+        "attempts": 1,
+        "configured": true,
+        "results": [
+          {
+            "title": "OpenClaw Plugin SDK",
+            "url": "https://docs.openclaw.ai/plugins/sdk",
+            "originalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "snippet": "Plugin SDK runtime helpers include web search, tool registration, and config access.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "tavily",
+            "score": 0.88,
+            "rawRank": 1,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          },
+          {
+            "title": "Search Fusion on GitHub",
+            "url": "https://github.com/VACInc/openclaw-search-fusion",
+            "originalUrl": "https://github.com/VACInc/openclaw-search-fusion",
+            "canonicalUrl": "https://github.com/VACInc/openclaw-search-fusion",
+            "snippet": "Federated web search fusion for OpenClaw.",
+            "siteName": "github.com",
+            "providerId": "tavily",
+            "score": 0.75,
+            "rawRank": 2,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          }
+        ],
+        "rawPayload": {
+          "results": [
+            {
+              "title": "OpenClaw Plugin SDK",
+              "url": "https://docs.openclaw.ai/plugins/sdk",
+              "description": "Plugin SDK runtime helpers include web search, tool registration, and config access."
+            },
+            {
+              "title": "Search Fusion on GitHub",
+              "url": "https://github.com/VACInc/openclaw-search-fusion",
+              "description": "Federated web search fusion for OpenClaw."
+            }
+          ]
+        },
+        "retryHistory": []
+      }
+    ],
+    "answers": [],
+    "results": [
+      {
+        "title": "OpenClaw Plugin SDK",
+        "url": "https://docs.openclaw.ai/plugins/sdk",
+        "canonicalUrl": "https://docs.openclaw.ai/plugins/sdk",
+        "snippet": "Plugin SDK runtime helpers include web search, tool registration, and config access.",
+        "siteName": "docs.openclaw.ai",
+        "providers": ["brave", "tavily"],
+        "providerCount": 2,
+        "score": 1.09,
+        "bestRank": 1,
+        "flags": ["tracking-stripped"],
+        "rankings": [
+          { "providerId": "brave", "rawRank": 1, "score": 0.9, "sourceType": "results", "flags": ["tracking-stripped"] },
+          { "providerId": "tavily", "rawRank": 1, "score": 0.88, "sourceType": "results", "flags": [] }
+        ],
+        "variants": [
+          {
+            "title": "OpenClaw Plugin SDK",
+            "url": "https://docs.openclaw.ai/plugins/sdk",
+            "originalUrl": "https://docs.openclaw.ai/plugins/sdk?utm_source=brave",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "snippet": "The plugin SDK exposes runtime helpers for web search, tools, and configuration.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "brave",
+            "score": 0.9,
+            "rawRank": 1,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": ["tracking-stripped"]
+          },
+          {
+            "title": "OpenClaw Plugin SDK",
+            "url": "https://docs.openclaw.ai/plugins/sdk",
+            "originalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/sdk",
+            "snippet": "Plugin SDK runtime helpers include web search, tool registration, and config access.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "tavily",
+            "score": 0.88,
+            "rawRank": 1,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          }
+        ]
+      },
+      {
+        "title": "OpenClaw Plugin Guide",
+        "url": "https://docs.openclaw.ai/plugins/guide",
+        "canonicalUrl": "https://docs.openclaw.ai/plugins/guide",
+        "snippet": "Step-by-step guide to writing and registering OpenClaw plugins.",
+        "siteName": "docs.openclaw.ai",
+        "providers": ["brave"],
+        "providerCount": 1,
+        "score": 0.82,
+        "bestRank": 2,
+        "flags": [],
+        "rankings": [
+          { "providerId": "brave", "rawRank": 2, "score": 0.82, "sourceType": "results", "flags": [] }
+        ],
+        "variants": [
+          {
+            "title": "OpenClaw Plugin Guide",
+            "url": "https://docs.openclaw.ai/plugins/guide",
+            "originalUrl": "https://docs.openclaw.ai/plugins/guide",
+            "canonicalUrl": "https://docs.openclaw.ai/plugins/guide",
+            "snippet": "Step-by-step guide to writing and registering OpenClaw plugins.",
+            "siteName": "docs.openclaw.ai",
+            "providerId": "brave",
+            "score": 0.82,
+            "rawRank": 2,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          }
+        ]
+      },
+      {
+        "title": "Search Fusion on GitHub",
+        "url": "https://github.com/VACInc/openclaw-search-fusion",
+        "canonicalUrl": "https://github.com/VACInc/openclaw-search-fusion",
+        "snippet": "Federated web search fusion for OpenClaw.",
+        "siteName": "github.com",
+        "providers": ["tavily"],
+        "providerCount": 1,
+        "score": 0.75,
+        "bestRank": 2,
+        "flags": [],
+        "rankings": [
+          { "providerId": "tavily", "rawRank": 2, "score": 0.75, "sourceType": "results", "flags": [] }
+        ],
+        "variants": [
+          {
+            "title": "Search Fusion on GitHub",
+            "url": "https://github.com/VACInc/openclaw-search-fusion",
+            "originalUrl": "https://github.com/VACInc/openclaw-search-fusion",
+            "canonicalUrl": "https://github.com/VACInc/openclaw-search-fusion",
+            "snippet": "Federated web search fusion for OpenClaw.",
+            "siteName": "github.com",
+            "providerId": "tavily",
+            "score": 0.75,
+            "rawRank": 2,
+            "sourceType": "results",
+            "snippetSource": "provider",
+            "flags": []
+          }
+        ]
+      }
+    ],
+    "externalContent": {
+      "untrusted": true,
+      "source": "web_search",
+      "provider": "search-fusion",
+      "aggregated": true
+    }
+  }
+}

@@ -1,4 +1,5 @@
 import type {
+  DiscardedSearchResult,
   NormalizedSearchResult,
   ProviderAnswerCitation,
   ProviderAnswerDigest,
@@ -125,22 +126,41 @@ function mapResultArray(params: {
   sourceType: SearchResultSourceType;
   sourceTierMode: SourceTierMode;
   fallbackSnippet?: string;
-}): NormalizedSearchResult[] {
-  const mapped: Array<NormalizedSearchResult | null> = params.items.map((item, index) => {
+}): {
+  results: NormalizedSearchResult[];
+  discardedResults: DiscardedSearchResult[];
+} {
+  const results: NormalizedSearchResult[] = [];
+  const discardedResults: DiscardedSearchResult[] = [];
+
+  params.items.forEach((item, index) => {
     const stringItem = typeof item === "string" ? item.trim() : "";
     const obj = asObject(item);
     const rawUrl = stringItem || firstString(obj, ["url", "link", "href"]);
-    if (!rawUrl) return null;
+    const providerSnippet = cleanProviderText(
+      firstString(obj, ["description", "snippet", "content", "body", "text", "summary"]),
+    );
+    const fallbackSnippet = params.fallbackSnippet ? truncate(params.fallbackSnippet) : undefined;
+
+    if (!rawUrl) {
+      discardedResults.push({
+        providerId: params.providerId,
+        sourceType: params.sourceType,
+        rawRank: index + 1,
+        reason: "missing-url",
+        title: firstString(obj, ["title", "name", "headline", "label"]),
+        snippet: providerSnippet || fallbackSnippet,
+        rawItem: item,
+      } satisfies DiscardedSearchResult);
+      return;
+    }
 
     const analyzedUrl = analyzeUrl(rawUrl);
     const itemFlags = detectItemFlags(obj, analyzedUrl.url);
     const flags = mergeFlags(analyzedUrl.flags as SearchResultFlag[], itemFlags);
     const sourceTier = classifySourceTier({ sourceType: params.sourceType, flags });
     const title = firstString(obj, ["title", "name", "headline", "label"]) ?? titleFromUrl(analyzedUrl.url);
-    const providerSnippet = cleanProviderText(
-      firstString(obj, ["description", "snippet", "content", "body", "text", "summary"]),
-    );
-    const snippet = providerSnippet || (params.fallbackSnippet ? truncate(params.fallbackSnippet) : undefined);
+    const snippet = providerSnippet || fallbackSnippet;
     const nativeScore = firstNumber(obj, ["score", "confidence", "relevance"]);
     const baseScore = normalizeNativeScore(nativeScore, index);
     const preTierScore = Math.max(
@@ -152,7 +172,7 @@ function mapResultArray(params: {
       preTierScore * sourceTierMultiplier(sourceTier, params.sourceTierMode),
     );
 
-    return {
+    results.push({
       title,
       url: analyzedUrl.url,
       originalUrl: analyzedUrl.originalUrl,
@@ -168,10 +188,10 @@ function mapResultArray(params: {
       snippetSource: providerSnippet ? "provider" : params.fallbackSnippet ? "answer-fallback" : undefined,
       flags,
       rawItem: item,
-    } satisfies NormalizedSearchResult;
+    } satisfies NormalizedSearchResult);
   });
 
-  return mapped.flatMap((result) => (result ? [result] : []));
+  return { results, discardedResults };
 }
 
 function buildCitationDetails(citationsRaw: unknown[]): ProviderAnswerCitation[] {
@@ -222,6 +242,7 @@ export function normalizeProviderPayload(params: {
   sourceTierMode?: SourceTierMode;
 }): {
   results: NormalizedSearchResult[];
+  discardedResults: DiscardedSearchResult[];
   answer?: ProviderAnswerDigest;
   error?: string;
 } {
@@ -230,67 +251,68 @@ export function normalizeProviderPayload(params: {
   const sourceTierMode = coerceSourceTierMode(params.sourceTierMode);
 
   const resultArrays: NormalizedSearchResult[] = [];
+  const discardedArrays: DiscardedSearchResult[] = [];
   const topLevelResults = Array.isArray(payload.results) ? payload.results : [];
   if (topLevelResults.length > 0) {
-    resultArrays.push(
-      ...mapResultArray({
-        items: topLevelResults,
-        providerId: params.providerId,
-        sourceType: "results",
-        sourceTierMode,
-        fallbackSnippet: answer?.fullContent,
-      }),
-    );
+    const mapped = mapResultArray({
+      items: topLevelResults,
+      providerId: params.providerId,
+      sourceType: "results",
+      sourceTierMode,
+      fallbackSnippet: answer?.fullContent,
+    });
+    resultArrays.push(...mapped.results);
+    discardedArrays.push(...mapped.discardedResults);
   }
 
   const topLevelSources = Array.isArray(payload.sources) ? payload.sources : [];
   if (topLevelSources.length > 0) {
-    resultArrays.push(
-      ...mapResultArray({
-        items: topLevelSources,
-        providerId: params.providerId,
-        sourceType: "sources",
-        sourceTierMode,
-        fallbackSnippet: answer?.fullContent,
-      }),
-    );
+    const mapped = mapResultArray({
+      items: topLevelSources,
+      providerId: params.providerId,
+      sourceType: "sources",
+      sourceTierMode,
+      fallbackSnippet: answer?.fullContent,
+    });
+    resultArrays.push(...mapped.results);
+    discardedArrays.push(...mapped.discardedResults);
   }
 
   const nestedWebResults = Array.isArray(asObject(payload.web)?.results)
     ? (asObject(payload.web)?.results as unknown[])
     : [];
   if (nestedWebResults.length > 0) {
-    resultArrays.push(
-      ...mapResultArray({
-        items: nestedWebResults,
-        providerId: params.providerId,
-        sourceType: "results",
-        sourceTierMode,
-        fallbackSnippet: answer?.fullContent,
-      }),
-    );
+    const mapped = mapResultArray({
+      items: nestedWebResults,
+      providerId: params.providerId,
+      sourceType: "results",
+      sourceTierMode,
+      fallbackSnippet: answer?.fullContent,
+    });
+    resultArrays.push(...mapped.results);
+    discardedArrays.push(...mapped.discardedResults);
   }
 
   const citations = Array.isArray(payload.citations) ? payload.citations : [];
   if (citations.length > 0) {
-    resultArrays.push(
-      ...mapResultArray({
-        items: citations,
-        providerId: params.providerId,
-        sourceType: "citations",
-        sourceTierMode,
-        fallbackSnippet: answer?.fullContent,
-      }),
-    );
+    const mapped = mapResultArray({
+      items: citations,
+      providerId: params.providerId,
+      sourceType: "citations",
+      sourceTierMode,
+      fallbackSnippet: answer?.fullContent,
+    });
+    resultArrays.push(...mapped.results);
+    discardedArrays.push(...mapped.discardedResults);
   }
 
   const errorParts = [payload.error, payload.message]
     .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     .map((value) => value.trim());
   const error =
-    errorParts.length > 0 && resultArrays.length === 0 && !answer
+    errorParts.length > 0 && resultArrays.length === 0 && discardedArrays.length === 0 && !answer
       ? errorParts.join(": ")
       : undefined;
 
-  return { results: resultArrays, answer, error };
+  return { results: resultArrays, discardedResults: discardedArrays, answer, error };
 }

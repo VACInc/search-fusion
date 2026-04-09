@@ -1,4 +1,5 @@
 import type { ResolvedProvider, RuntimeWebSearchProvider, SearchFusionConfig } from "./types.js";
+import { resolveProviderCapabilities } from "./provider-capabilities.js";
 
 function asSearchConfig(config: unknown): Record<string, unknown> | undefined {
   const maybe = (config as { tools?: { web?: { search?: Record<string, unknown> } } } | undefined)?.tools?.web
@@ -32,6 +33,33 @@ function normalizeModes(modes: SearchFusionConfig["modes"]): Map<string, string[
       .map(([name, providers]) => [normalizeName(name), normalizeIdList(providers)] as const)
       .filter((entry): entry is [string, string[]] => Boolean(entry[0])),
   );
+}
+
+function buildStarterModes(providers: ResolvedProvider[]): Map<string, string[]> {
+  const providerIds = providers.map((provider) => provider.id);
+  const starterEntries: Array<[string, string[]]> = [
+    ["fast", providerIds.slice(0, 1)],
+    ["balanced", providerIds.slice(0, 2)],
+    ["deep", providerIds],
+  ];
+
+  return new Map(starterEntries.filter((entry) => entry[1].length > 0));
+}
+
+function resolveModes(params: {
+  configuredProviders: ResolvedProvider[];
+  availableProviders: ResolvedProvider[];
+  configModes: SearchFusionConfig["modes"];
+}): Map<string, string[]> {
+  const customModes = normalizeModes(params.configModes);
+  if (customModes.size > 0) {
+    return customModes;
+  }
+
+  const pool = params.configuredProviders.length > 0
+    ? params.configuredProviders
+    : params.availableProviders;
+  return buildStarterModes(pool);
 }
 
 function resolveModeProviders(params: {
@@ -89,6 +117,7 @@ export function discoverProviders(params: {
       hint: provider.hint,
       autoDetectOrder: provider.autoDetectOrder,
       configured: isProviderConfigured(provider, params.config),
+      capabilities: [...resolveProviderCapabilities(provider.id)],
     }))
     .sort((a, b) => {
       const orderA = a.autoDetectOrder ?? Number.MAX_SAFE_INTEGER;
@@ -110,7 +139,11 @@ export function resolveSelectedProviders(params: {
   const configured = available.filter((provider) => provider.configured);
   const requested = normalizeIdList(params.requestProviders);
   const requestMode = normalizeName(params.requestMode);
-  const modes = normalizeModes(params.config.modes);
+  const modes = resolveModes({
+    configuredProviders: configured,
+    availableProviders: available,
+    configModes: params.config.modes,
+  });
 
   const expandAll = requested.includes("all") || requested.includes("*");
   if (expandAll) {

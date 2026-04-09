@@ -112,6 +112,37 @@ test("normalizeProviderPayload tags sponsored/video/community items deterministi
   assert.equal(normalized.results[2]?.sourceTier, "low");
 });
 
+
+test("normalizeProviderPayload preserves missing-url items as discarded provenance", () => {
+  const missingUrlItem = {
+    title: "Knowledge panel",
+    description: "Entity summary with no outbound URL",
+    kind: "infobox",
+  };
+
+  const normalized = normalizeProviderPayload({
+    providerId: "tavily",
+    payload: {
+      results: [
+        missingUrlItem,
+        {
+          title: "Real result",
+          url: "https://docs.openclaw.ai/tools/web",
+        },
+      ],
+    },
+  });
+
+  assert.equal(normalized.results.length, 1);
+  assert.equal(normalized.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(normalized.discardedResults.length, 1);
+  assert.equal(normalized.discardedResults[0]?.reason, "missing-url");
+  assert.equal(normalized.discardedResults[0]?.rawRank, 1);
+  assert.equal(normalized.discardedResults[0]?.title, "Knowledge panel");
+  assert.equal(normalized.discardedResults[0]?.snippet, "Entity summary with no outbound URL");
+  assert.deepEqual(normalized.discardedResults[0]?.rawItem, missingUrlItem);
+});
+
 test("normalizeProviderPayload surfaces provider error when nothing usable returned", () => {
   const normalized = normalizeProviderPayload({
     providerId: "grok",
