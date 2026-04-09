@@ -10,7 +10,8 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node --test --import tsx test/**/*.test.ts"
+    "test": "node --test --import tsx test/**/*.test.ts",
+    "verify:clawhub-visibility": "node scripts/verify-clawhub-visibility.mjs"
   },
   "files": [
     "index.ts",

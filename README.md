@@ -142,6 +142,14 @@ pnpm check
 pnpm test
 ```
 
+## ClawHub visibility verification
+
+```bash
+pnpm verify:clawhub-visibility
+```
+
+See `docs/clawhub-visibility-check.md` for re-check details and the latest verification notes.
+
 ## Current behavior
 
 - no hardcoded modes; users define modes in config if they want them
