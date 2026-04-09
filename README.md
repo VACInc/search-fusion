@@ -28,6 +28,7 @@ Search Fusion is the orchestration layer:
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
 - expose native ranks, deterministic flags, and merged rankings
+- emit machine-readable corroboration/confidence hints for downstream summarizers
 - expose one clean result set back to the agent
 
 ## Install
@@ -134,6 +135,43 @@ Supported arguments:
 
 Lists the providers visible to the broker and whether they appear configured.
 
+## Corroboration and confidence signals
+
+`search_fusion` now emits structured evidence metadata so downstream systems (for example Atlas summarizers) can detect weak corroboration or synthesis-heavy results without parsing prose.
+
+- Per-result: `payload.results[].confidence`
+- Rollup summary: `payload.confidence`
+
+Example shape:
+
+```json
+{
+  "confidence": {
+    "queriedProviderCount": 3,
+    "succeededProviderCount": 2,
+    "weakEvidence": true,
+    "weakEvidenceResultCount": 2,
+    "synthesisHeavyResultCount": 1
+  },
+  "results": [
+    {
+      "canonicalUrl": "https://example.com/report",
+      "confidence": {
+        "supportingProviderCount": 2,
+        "supportingDomainCount": 1,
+        "resultEvidenceCount": 2,
+        "citationEvidenceCount": 0,
+        "corroborationLevel": "medium",
+        "confidenceLevel": "high",
+        "weakEvidence": false,
+        "synthesisHeavy": false,
+        "weakEvidenceReasons": []
+      }
+    }
+  ]
+}
+```
+
 ## Development
 
 ```bash
@@ -154,6 +192,8 @@ pnpm test
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
+- surfaces `results[].confidence` with provider/domain/evidence counts, confidence level/score, synthesis-heavy flag, and weak-evidence reasons
+- surfaces `payload.confidence` with a broker-level weak-evidence/synthesis-heavy rollup
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits
 
 ## Next upgrades
