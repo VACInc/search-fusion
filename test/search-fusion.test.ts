@@ -147,6 +147,15 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     "brave",
   );
   assert.equal(payload.providersSucceeded.length, 3);
+  assert.equal(mergedDocs?.confidence.supportingProviderCount, 3);
+  assert.equal(mergedDocs?.confidence.supportingDomainCount, 1);
+  assert.equal(mergedDocs?.confidence.resultEvidenceCount, 3);
+  assert.equal(mergedDocs?.confidence.citationEvidenceCount, 0);
+  assert.equal(mergedDocs?.confidence.synthesisHeavy, false);
+  assert.equal(mergedDocs?.confidence.weakEvidence, false);
+  assert.equal(payload.confidence.queriedProviderCount, 3);
+  assert.equal(payload.confidence.succeededProviderCount, 3);
+  assert.equal(payload.confidence.multiProviderResultCount, 1);
 });
 
 test("runSearchFusion uses configured default providers and excludes itself", async () => {
@@ -236,6 +245,82 @@ test("runSearchFusion preserves full answer content and raw payloads for answer-
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
   assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+});
+
+test("runSearchFusion surfaces corroboration and synthesis-heavy confidence signals", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => {
+        if (providerId === "brave") {
+          return {
+            provider: "brave",
+            result: {
+              results: [
+                {
+                  title: "Corroborated report",
+                  url: "https://example.com/report",
+                  description: "Primary source from Brave",
+                },
+              ],
+            },
+          };
+        }
+
+        if (providerId === "tavily") {
+          return {
+            provider: "tavily",
+            result: {
+              results: [
+                {
+                  title: "Corroborated report copy",
+                  url: "https://example.com/report?utm_source=tavily",
+                  description: "Independent retrieval from Tavily",
+                },
+              ],
+            },
+          };
+        }
+
+        return {
+          provider: providerId ?? "gemini",
+          result: {
+            content: "Synthesis answer only.",
+            citations: [{ url: "https://example.org/analysis", title: "Analysis" }],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "corroboration confidence",
+      providers: ["brave", "tavily", "gemini"],
+    },
+  });
+
+  const corroborated = payload.results.find((result) => result.canonicalUrl === "https://example.com/report");
+  const synthesisHeavy = payload.results.find(
+    (result) => result.canonicalUrl === "https://example.org/analysis",
+  );
+
+  assert.equal(corroborated?.confidence.supportingProviderCount, 2);
+  assert.equal(corroborated?.confidence.resultEvidenceCount, 2);
+  assert.equal(corroborated?.confidence.citationEvidenceCount, 0);
+  assert.equal(corroborated?.confidence.synthesisHeavy, false);
+  assert.equal(corroborated?.confidence.weakEvidence, false);
+
+  assert.equal(synthesisHeavy?.confidence.supportingProviderCount, 1);
+  assert.equal(synthesisHeavy?.confidence.resultEvidenceCount, 0);
+  assert.equal(synthesisHeavy?.confidence.citationEvidenceCount, 1);
+  assert.equal(synthesisHeavy?.confidence.synthesisHeavy, true);
+  assert.ok(synthesisHeavy?.confidence.weakEvidenceReasons.includes("citation-only"));
+  assert.ok(synthesisHeavy?.confidence.weakEvidenceReasons.includes("synthesis-heavy"));
+
+  assert.equal(payload.confidence.queriedProviderCount, 3);
+  assert.equal(payload.confidence.succeededProviderCount, 3);
+  assert.equal(payload.confidence.multiProviderResultCount, 1);
+  assert.equal(payload.confidence.synthesisHeavyResultCount, 1);
+  assert.equal(payload.confidence.weakEvidenceResultCount, 1);
 });
 
 test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", async () => {

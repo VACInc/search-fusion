@@ -132,6 +132,43 @@ export type SearchResultRanking = {
   flags: SearchResultFlag[];
 };
 
+export type FusionConfidenceLevel = "low" | "medium" | "high";
+
+export type FusionWeakEvidenceReason =
+  | "single-provider"
+  | "single-provider-single-domain"
+  | "citation-only"
+  | "synthesis-heavy"
+  | "low-confidence-score";
+
+export type FusionResultConfidence = {
+  supportingVariantCount: number;
+  supportingProviderCount: number;
+  supportingDomainCount: number;
+  resultEvidenceCount: number;
+  citationEvidenceCount: number;
+  answerFallbackCount: number;
+  corroborationLevel: FusionConfidenceLevel;
+  confidenceScore: number;
+  confidenceLevel: FusionConfidenceLevel;
+  weakEvidence: boolean;
+  synthesisHeavy: boolean;
+  weakEvidenceReasons: FusionWeakEvidenceReason[];
+};
+
+export type FusionPayloadConfidence = {
+  queriedProviderCount: number;
+  succeededProviderCount: number;
+  failedProviderCount: number;
+  mergedResultCount: number;
+  multiProviderResultCount: number;
+  multiDomainResultCount: number;
+  lowCorroborationResultCount: number;
+  weakEvidenceResultCount: number;
+  synthesisHeavyResultCount: number;
+  weakEvidence: boolean;
+};
+
 export type FusionMergedResult = {
   title: string;
   url: string;
@@ -145,6 +182,7 @@ export type FusionMergedResult = {
   flags: SearchResultFlag[];
   rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];
+  confidence: FusionResultConfidence;
 };
 
 export type SearchRuntime = {
@@ -191,6 +229,7 @@ export type FusionSearchPayload = {
   }>;
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
+  confidence: FusionPayloadConfidence;
   externalContent: {
     untrusted: true;
     source: "web_search";

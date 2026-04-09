@@ -1,5 +1,7 @@
 import type {
   FusionMergedResult,
+  FusionPayloadConfidence,
+  FusionResultConfidence,
   FusionSearchPayload,
   ProviderRunResult,
   ProviderSelectionRequest,
@@ -8,6 +10,7 @@ import type {
   SearchFusionProviderConfig,
   SearchFusionRetryConfig,
   SearchResultFlag,
+  SearchResultSourceType,
   SearchRuntime,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
@@ -34,6 +37,8 @@ type ResolvedProviderConfig = {
   timeoutMs: number;
   retry: ResolvedRetryConfig;
 };
+
+type MergedEntry = Omit<FusionMergedResult, "score" | "confidence">;
 
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
   return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig)
@@ -177,15 +182,155 @@ function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   return penalty;
 }
 
-function computeMergedScore(entry: Omit<FusionMergedResult, "score">): number {
+function resolveDomain(url: string): string | undefined {
+  try {
+    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+function isResultLikeSource(sourceType: SearchResultSourceType): boolean {
+  return sourceType === "results" || sourceType === "sources";
+}
+
+function deriveCorroborationLevel(params: {
+  providerCount: number;
+  domainCount: number;
+  resultEvidenceCount: number;
+}): FusionResultConfidence["corroborationLevel"] {
+  if (params.providerCount >= 3 || (params.providerCount >= 2 && params.domainCount >= 2)) {
+    return "high";
+  }
+
+  if (params.providerCount >= 2 || (params.domainCount >= 2 && params.resultEvidenceCount >= 2)) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function deriveConfidenceLevel(score: number): FusionResultConfidence["confidenceLevel"] {
+  if (score >= 0.72) return "high";
+  if (score >= 0.45) return "medium";
+  return "low";
+}
+
+function computeResultConfidence(entry: MergedEntry): FusionResultConfidence {
+  const supportingDomains = [...new Set(entry.variants.map((variant) => resolveDomain(variant.canonicalUrl)).filter(Boolean))] as string[];
+  const resultEvidenceCount = entry.variants.filter((variant) => isResultLikeSource(variant.sourceType)).length;
+  const citationEvidenceCount = entry.variants.filter((variant) => variant.sourceType === "citations").length;
+  const answerFallbackCount = entry.variants.filter((variant) => variant.snippetSource === "answer-fallback").length;
+  const synthesisHeavy =
+    citationEvidenceCount > resultEvidenceCount ||
+    (resultEvidenceCount === 0 && citationEvidenceCount > 0) ||
+    (answerFallbackCount > 0 && resultEvidenceCount <= citationEvidenceCount);
+
+  const providerSignal = Math.min(1, entry.providerCount / 3);
+  const domainSignal = Math.min(1, supportingDomains.length / 3);
+  const evidenceTotal = resultEvidenceCount + citationEvidenceCount;
+  const evidenceQualitySignal =
+    evidenceTotal > 0 ? (resultEvidenceCount + citationEvidenceCount * 0.35) / evidenceTotal : 0;
+  const rankSignal = Math.max(0, 1 - (entry.bestRank - 1) * 0.08);
+  const confidenceScore = clamp(
+    0.4 * providerSignal +
+      0.25 * domainSignal +
+      0.25 * evidenceQualitySignal +
+      0.1 * rankSignal -
+      (synthesisHeavy ? 0.15 : 0),
+    0,
+    1,
+  );
+  const corroborationLevel = deriveCorroborationLevel({
+    providerCount: entry.providerCount,
+    domainCount: supportingDomains.length,
+    resultEvidenceCount,
+  });
+
+  const weakEvidenceReasonSet = new Set<FusionResultConfidence["weakEvidenceReasons"][number]>();
+  if (entry.providerCount <= 1) {
+    weakEvidenceReasonSet.add("single-provider");
+  }
+  if (entry.providerCount <= 1 && supportingDomains.length <= 1) {
+    weakEvidenceReasonSet.add("single-provider-single-domain");
+  }
+  if (resultEvidenceCount === 0 && citationEvidenceCount > 0) {
+    weakEvidenceReasonSet.add("citation-only");
+  }
+  if (synthesisHeavy) {
+    weakEvidenceReasonSet.add("synthesis-heavy");
+  }
+  if (confidenceScore < 0.45) {
+    weakEvidenceReasonSet.add("low-confidence-score");
+  }
+
+  const weakEvidenceReasons = [...weakEvidenceReasonSet].sort();
+
+  return {
+    supportingVariantCount: entry.variants.length,
+    supportingProviderCount: entry.providerCount,
+    supportingDomainCount: supportingDomains.length,
+    resultEvidenceCount,
+    citationEvidenceCount,
+    answerFallbackCount,
+    corroborationLevel,
+    confidenceScore,
+    confidenceLevel: deriveConfidenceLevel(confidenceScore),
+    weakEvidence: weakEvidenceReasons.length > 0,
+    synthesisHeavy,
+    weakEvidenceReasons,
+  };
+}
+
+function computeMergedScore(entry: MergedEntry): number {
   const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
   const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
   const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
   return Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - mergedFlagPenalty(entry.flags));
 }
 
+function summarizePayloadConfidence(params: {
+  selectedProviderCount: number;
+  providerRuns: ProviderRunResult[];
+  mergedResults: FusionMergedResult[];
+}): FusionPayloadConfidence {
+  const succeededProviderCount = params.providerRuns.filter((run) => run.ok).length;
+  const failedProviderCount = params.providerRuns.length - succeededProviderCount;
+  const multiProviderResultCount = params.mergedResults.filter(
+    (result) => result.confidence.supportingProviderCount >= 2,
+  ).length;
+  const multiDomainResultCount = params.mergedResults.filter(
+    (result) => result.confidence.supportingDomainCount >= 2,
+  ).length;
+  const lowCorroborationResultCount = params.mergedResults.filter(
+    (result) => result.confidence.corroborationLevel === "low",
+  ).length;
+  const weakEvidenceResultCount = params.mergedResults.filter((result) => result.confidence.weakEvidence).length;
+  const synthesisHeavyResultCount = params.mergedResults.filter(
+    (result) => result.confidence.synthesisHeavy,
+  ).length;
+
+  const weakEvidence =
+    params.mergedResults.length === 0
+      ? succeededProviderCount <= 1
+      : weakEvidenceResultCount > 0 || succeededProviderCount <= 1;
+
+  return {
+    queriedProviderCount: params.selectedProviderCount,
+    succeededProviderCount,
+    failedProviderCount,
+    mergedResultCount: params.mergedResults.length,
+    multiProviderResultCount,
+    multiDomainResultCount,
+    lowCorroborationResultCount,
+    weakEvidenceResultCount,
+    synthesisHeavyResultCount,
+    weakEvidence,
+  };
+}
+
 function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
-  const merged = new Map<string, Omit<FusionMergedResult, "score">>();
+  const merged = new Map<string, MergedEntry>();
 
   for (const provider of results) {
     for (const item of provider.results) {
@@ -244,22 +389,29 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
   }
 
   return [...merged.values()]
-    .map((entry) => ({
-      ...entry,
-      providers: [...entry.providers].sort(),
-      providerCount: entry.providers.length,
-      flags: [...entry.flags].sort(),
-      rankings: [...entry.rankings].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      variants: [...entry.variants].sort((a, b) => {
-        if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
-        if (b.score !== a.score) return b.score - a.score;
-        return a.providerId.localeCompare(b.providerId);
-      }),
-      score: computeMergedScore(entry),
-    }))
+    .map((entry) => {
+      const normalizedEntry: MergedEntry = {
+        ...entry,
+        providers: [...entry.providers].sort(),
+        providerCount: entry.providers.length,
+        flags: [...entry.flags].sort(),
+        rankings: [...entry.rankings].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+        variants: [...entry.variants].sort((a, b) => {
+          if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+          if (b.score !== a.score) return b.score - a.score;
+          return a.providerId.localeCompare(b.providerId);
+        }),
+      };
+
+      return {
+        ...normalizedEntry,
+        confidence: computeResultConfidence(normalizedEntry),
+        score: computeMergedScore(normalizedEntry),
+      };
+    })
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
@@ -398,6 +550,18 @@ export async function runSearchFusion(params: {
       providerRuns: [],
       answers: [],
       results: [],
+      confidence: {
+        queriedProviderCount: 0,
+        succeededProviderCount: 0,
+        failedProviderCount: 0,
+        mergedResultCount: 0,
+        multiProviderResultCount: 0,
+        multiDomainResultCount: 0,
+        lowCorroborationResultCount: 0,
+        weakEvidenceResultCount: 0,
+        synthesisHeavyResultCount: 0,
+        weakEvidence: true,
+      },
       externalContent: {
         untrusted: true,
         source: "web_search",
@@ -430,6 +594,11 @@ export async function runSearchFusion(params: {
   const answers = providerRuns
     .map((run) => run.answer)
     .filter((answer): answer is NonNullable<ProviderRunResult["answer"]> => Boolean(answer));
+  const confidence = summarizePayloadConfidence({
+    selectedProviderCount: selectedProviders.length,
+    providerRuns,
+    mergedResults,
+  });
 
   return {
     query: params.request.query,
@@ -466,6 +635,7 @@ export async function runSearchFusion(params: {
     })),
     answers,
     results: mergedResults,
+    confidence,
     externalContent: {
       untrusted: true,
       source: "web_search",
@@ -480,6 +650,9 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
   lines.push(
     `Search broker ran ${payload.providersQueried.length} provider${payload.providersQueried.length === 1 ? "" : "s"} in ${payload.tookMs}ms.`,
   );
+  lines.push(
+    `Corroboration: ${payload.confidence.multiProviderResultCount}/${payload.confidence.mergedResultCount} multi-provider, ${payload.confidence.synthesisHeavyResultCount} synthesis-heavy, ${payload.confidence.weakEvidenceResultCount} weak-evidence results (${payload.confidence.weakEvidence ? "weak evidence detected" : "stable"}).`,
+  );
 
   if (payload.results.length > 0) {
     lines.push("");
@@ -488,6 +661,12 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
       lines.push(`${index + 1}. ${result.title}`);
       lines.push(`   ${result.url}`);
       lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
+      lines.push(
+        `   Confidence: ${result.confidence.confidenceLevel} (${Math.round(result.confidence.confidenceScore * 100)}%) • Corroboration: ${result.confidence.corroborationLevel} • Evidence: ${result.confidence.supportingProviderCount} provider(s), ${result.confidence.supportingDomainCount} domain(s), ${result.confidence.resultEvidenceCount} result-style, ${result.confidence.citationEvidenceCount} citation-derived`,
+      );
+      if (result.confidence.weakEvidenceReasons.length > 0) {
+        lines.push(`   Weak-evidence signals: ${result.confidence.weakEvidenceReasons.join(", ")}`);
+      }
       if (result.flags.length > 0) {
         lines.push(`   Flags: ${result.flags.join(", ")}`);
       }
