@@ -25,6 +25,7 @@ Search Fusion is the orchestration layer:
 - run them in parallel
 - retry transient provider failures with configurable policy
 - merge duplicate URLs
+- group merged hits into durable domain-family clusters
 - keep provider attribution intact
 - preserve raw provider payloads and per-provider merged variants
 - expose native ranks, deterministic flags, and merged rankings
@@ -134,6 +135,18 @@ Supported arguments:
 
 Lists the providers visible to the broker and whether they appear configured.
 
+### Result clusters in `search_fusion` output
+
+`payload.clusters[]` groups merged hits by domain family (for example `docs.openclaw.ai` and `blog.openclaw.ai` both map to `openclaw.ai`).
+
+Each cluster includes:
+- `key` / `label` (domain-family identifier)
+- `resultCount`
+- `providerCount` and `providers`
+- `topScore` and `bestRank`
+- merged `flags`
+- grouped `results[]`
+
 ## Development
 
 ```bash
@@ -152,6 +165,7 @@ pnpm test
 - retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
+- groups merged hits by domain family in `clusters[]` to make downstream review easier
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
 - surfaces native ranks and merged rankings so the LLM can see where each hit came from
 - carries answer-style providers (Gemini / Grok / Kimi / Perplexity) as provider digests with `fullContent`, citation details, and citation-derived hits

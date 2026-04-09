@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 const TRACKING_PARAMS = new Set([
   "utm_source",
   "utm_medium",
@@ -10,6 +12,29 @@ const TRACKING_PARAMS = new Set([
   "mc_cid",
   "mc_eid",
   "ref",
+]);
+
+const MULTI_LABEL_PUBLIC_SUFFIXES = new Set([
+  "co.uk",
+  "org.uk",
+  "gov.uk",
+  "ac.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "edu.au",
+  "co.nz",
+  "co.jp",
+  "ne.jp",
+  "or.jp",
+  "com.br",
+  "com.mx",
+  "com.tr",
+  "com.hk",
+  "com.sg",
+  "com.tw",
+  "co.in",
+  "co.kr",
 ]);
 
 function maybeDecode(value: string | null): string | undefined {
@@ -125,6 +150,36 @@ export function analyzeUrl(rawUrl: string): UrlAnalysis {
 
 export function canonicalizeUrl(rawUrl: string): string {
   return analyzeUrl(rawUrl).url;
+}
+
+function resolveDomainFamilyFromHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase().replace(/^www\./, "");
+  if (!normalized) return hostname;
+
+  if (normalized === "localhost" || isIP(normalized) !== 0) {
+    return normalized;
+  }
+
+  const labels = normalized.split(".").filter(Boolean);
+  if (labels.length <= 2) {
+    return normalized;
+  }
+
+  const suffix = labels.slice(-2).join(".");
+  if (MULTI_LABEL_PUBLIC_SUFFIXES.has(suffix) && labels.length >= 3) {
+    return labels.slice(-3).join(".");
+  }
+
+  return labels.slice(-2).join(".");
+}
+
+export function resolveDomainFamily(rawUrl: string): string | undefined {
+  try {
+    const parsed = new URL(rawUrl);
+    return resolveDomainFamilyFromHostname(parsed.hostname);
+  } catch {
+    return undefined;
+  }
 }
 
 export function resolveSiteName(rawUrl: string): string | undefined {

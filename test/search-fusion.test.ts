@@ -147,6 +147,56 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     "brave",
   );
   assert.equal(payload.providersSucceeded.length, 3);
+
+  assert.equal(payload.clusters.length, 1);
+  assert.equal(payload.clusters[0]?.key, "openclaw.ai");
+  assert.equal(payload.clusters[0]?.resultCount, 2);
+  assert.deepEqual(payload.clusters[0]?.providers, ["brave", "duckduckgo", "tavily"]);
+  assert.deepEqual(
+    payload.clusters[0]?.results.map((result) => result.canonicalUrl),
+    ["https://docs.openclaw.ai/tools/web", "https://docs.openclaw.ai/plugins/sdk"],
+  );
+});
+
+test("runSearchFusion groups merged results into domain-family clusters", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "brave",
+        result: {
+          results: [
+            {
+              title: "Docs",
+              url: "https://docs.openclaw.ai/tools/web",
+            },
+            {
+              title: "Blog",
+              url: "https://blog.openclaw.ai/posts/search-fusion",
+            },
+            {
+              title: "GitHub",
+              url: "https://github.com/openclaw/openclaw",
+            },
+          ],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "domain clustering",
+      providers: ["brave"],
+    },
+  });
+
+  assert.equal(payload.clusters.length, 2);
+  assert.deepEqual(
+    payload.clusters.map((cluster) => ({ key: cluster.key, resultCount: cluster.resultCount })),
+    [
+      { key: "openclaw.ai", resultCount: 2 },
+      { key: "github.com", resultCount: 1 },
+    ],
+  );
 });
 
 test("runSearchFusion uses configured default providers and excludes itself", async () => {

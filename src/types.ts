@@ -147,6 +147,18 @@ export type FusionMergedResult = {
   variants: NormalizedSearchResult[];
 };
 
+export type FusionResultCluster = {
+  key: string;
+  label: string;
+  resultCount: number;
+  providerCount: number;
+  providers: string[];
+  topScore: number;
+  bestRank: number;
+  flags: SearchResultFlag[];
+  results: FusionMergedResult[];
+};
+
 export type SearchRuntime = {
   webSearch: {
     listProviders: (params?: { config?: unknown }) => RuntimeWebSearchProvider[];
@@ -191,6 +203,7 @@ export type FusionSearchPayload = {
   }>;
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
+  clusters: FusionResultCluster[];
   externalContent: {
     untrusted: true;
     source: "web_search";
