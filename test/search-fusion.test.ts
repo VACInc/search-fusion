@@ -571,6 +571,42 @@ test("runSearchFusion tolerates provider failures and reports them", async () =>
   assert.equal(payload.results.length, 2);
 });
 
+
+test("runSearchFusion isolates unexpected provider pipeline crashes", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "unknown",
+        result: {
+          results: [{ title: `${providerId} ok`, url: `https://example.com/${providerId}` }],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 1,
+      },
+      providerConfig: new Proxy({}, {
+        get: (_target, prop) => {
+          if (prop === "gemini") {
+            throw new Error("gemini pipeline blew up");
+          }
+          return undefined;
+        },
+      }),
+    },
+    request: {
+      query: "pipeline isolation",
+      providers: ["brave", "gemini", "tavily"],
+    },
+  });
+
+  assert.deepEqual(payload.providersSucceeded, ["brave", "tavily"]);
+  assert.deepEqual(payload.providersFailed, [{ provider: "gemini", error: "gemini pipeline blew up" }]);
+  assert.equal(payload.providerRuns.find((run) => run.provider === "gemini")?.ok, false);
+});
+
 test("runSearchFusion enforces per-provider timeouts", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime({

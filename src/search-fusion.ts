@@ -35,6 +35,11 @@ type ResolvedProviderConfig = {
   retry: ResolvedRetryConfig;
 };
 
+type ProviderRunTaskRejection = {
+  error: unknown;
+  tookMs: number;
+};
+
 function asConfig(pluginConfig: unknown): SearchFusionConfig {
   return pluginConfig && typeof pluginConfig === "object" && !Array.isArray(pluginConfig)
     ? (pluginConfig as SearchFusionConfig)
@@ -134,7 +139,63 @@ function sleep(ms: number): Promise<void> {
 }
 
 function asErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message.length > 0
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  try {
+    const rendered = String(error);
+    if (rendered.length > 0 && rendered !== "[object Object]") {
+      return rendered;
+    }
+  } catch {
+    // Ignore stringify errors and fall back to a generic message.
+  }
+
+  return "Unknown error";
+}
+
+function isProviderRunTaskRejection(value: unknown): value is ProviderRunTaskRejection {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "tookMs" in value &&
+    typeof (value as { tookMs?: unknown }).tookMs === "number" &&
+    "error" in value
+  );
+}
+
+function asUnhandledProviderFailure(params: {
+  provider: ResolvedProvider;
+  tookMs: number;
+  error: unknown;
+}): ProviderRunResult {
+  return {
+    providerId: params.provider.id,
+    label: params.provider.label,
+    configured: params.provider.configured,
+    ok: false,
+    tookMs: Math.max(0, params.tookMs),
+    rawCount: 0,
+    attempts: 1,
+    results: [],
+    retryHistory: [],
+    error: asErrorMessage(params.error),
+  };
 }
 
 function shouldRetry(errorMessage: string): boolean {
@@ -414,17 +475,41 @@ export async function runSearchFusion(params: {
     50,
   );
 
-  const providerRuns = await Promise.all(
-    selectedProviders.map((provider) =>
-      runProvider({
+  const providerRunTasks = selectedProviders.map((provider) => {
+    const startedAt = Date.now();
+    return {
+      provider,
+      startedAt,
+      promise: runProvider({
         runtime: params.runtime,
         config: params.config,
         brokerConfig,
         request: params.request,
         provider,
+      }).catch((error) => {
+        const rejection: ProviderRunTaskRejection = {
+          error,
+          tookMs: Math.max(0, Date.now() - startedAt),
+        };
+        throw rejection;
       }),
-    ),
-  );
+    };
+  });
+
+  const providerRuns = (
+    await Promise.allSettled(providerRunTasks.map((task) => task.promise))
+  ).map((settled, index) => {
+    if (settled.status === "fulfilled") {
+      return settled.value;
+    }
+
+    const rejection = isProviderRunTaskRejection(settled.reason) ? settled.reason : undefined;
+    return asUnhandledProviderFailure({
+      provider: providerRunTasks[index].provider,
+      tookMs: rejection?.tookMs ?? Math.max(0, Date.now() - providerRunTasks[index].startedAt),
+      error: rejection?.error ?? settled.reason,
+    });
+  });
 
   const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
   const answers = providerRuns

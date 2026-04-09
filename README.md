@@ -150,6 +150,7 @@ pnpm test
 - excludes itself to avoid recursion
 - dedupes by canonical URL
 - retries transient provider failures with global defaults and per-provider overrides via `providerConfig.<id>.retry`
+- isolates unexpected provider pipeline crashes so one provider cannot abort the whole fusion run
 - preserves raw provider payloads in `providerRuns[]`
 - preserves per-provider merged variants in `results[].variants[]`
 - surfaces deterministic flags like `sponsored`, `redirect-wrapper`, `tracking-stripped`, `community`, and `video`
