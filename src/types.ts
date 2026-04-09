@@ -1,5 +1,22 @@
 export type SearchFusionModeMap = Record<string, string[]>;
 
+/**
+ * Hint describing the caller's intent for a search query.
+ *
+ * - `"research"` — in-depth investigation; prefer answer/grounding providers alongside broad
+ *   web search (e.g. Gemini, Perplexity, Tavily).
+ * - `"keyword"` — keyword / classic web search; prefer fast index-based providers
+ *   (e.g. Brave, DuckDuckGo).
+ * - `"answer"` — direct answer expected; prefer answer-style providers
+ *   (e.g. Gemini, Grok, Perplexity).
+ * - `"news"` — recent news / current events; prefer freshness-optimized providers.
+ * - `"local"` — location-aware query; prefer providers with local/map results.
+ *
+ * When an intent is provided it influences provider selection but never overrides
+ * explicit `providers` or `mode` parameters.
+ */
+export type SearchQueryIntent = "research" | "keyword" | "answer" | "news" | "local";
+
 export type SearchFusionRetryConfig = {
   maxAttempts?: number;
   backoffMs?: number;
@@ -11,13 +28,36 @@ export type SearchFusionProviderConfig = {
   retry?: SearchFusionRetryConfig;
   timeoutMs?: number;
   count?: number;
+  weight?: number;
 };
+
+export type SourceTierMode = "off" | "balanced" | "strict";
 
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
+  /**
+   * Provider lists keyed by `SearchQueryIntent`.
+   * When a request carries an `intent` hint and no explicit `providers`/`mode`,
+   * Search Fusion uses this map to pick the provider set.
+   * Falls back to the normal default-resolution chain when the intent is absent
+   * or has no entry here.
+   *
+   * Example:
+   * ```json
+   * "intentProviders": {
+   *   "research": ["gemini", "tavily", "brave"],
+   *   "keyword":  ["brave", "duckduckgo"],
+   *   "answer":   ["gemini", "perplexity"],
+   *   "news":     ["brave", "tavily"],
+   *   "local":    ["brave"]
+   * }
+   * ```
+   */
+  intentProviders?: Partial<Record<SearchQueryIntent, string[]>>;
   defaultProviders?: string[];
   excludeProviders?: string[];
+  sourceTierMode?: SourceTierMode;
   countPerProvider?: number;
   maxMergedResults?: number;
   providerTimeoutMs?: number;
@@ -28,6 +68,19 @@ export type SearchFusionConfig = {
 
 export type ProviderSelectionRequest = {
   query: string;
+  /**
+   * Optional intent hint that biases provider selection without overriding
+   * explicit `providers` or `mode`.
+   *
+   * Resolution order:
+   * 1. explicit `providers`
+   * 2. explicit `mode`
+   * 3. `intent` → matched against `config.intentProviders`
+   * 4. configured `defaultMode`
+   * 5. configured `defaultProviders`
+   * 6. all configured providers
+   */
+  intent?: SearchQueryIntent;
   mode?: string;
   providers?: string[];
   count?: number;
@@ -59,6 +112,12 @@ export type ResolvedProvider = {
   hint?: string;
   autoDetectOrder?: number;
   configured: boolean;
+  /**
+   * Capability tags declared for this provider by the capability taxonomy.
+   * An empty array means the provider is treated as general-purpose / unknown.
+   * See `src/provider-capabilities.ts` for the full vocabulary.
+   */
+  capabilities?: import("./provider-capabilities.js").ProviderCapability[];
 };
 
 export type SearchResultFlag =
@@ -69,6 +128,20 @@ export type SearchResultFlag =
   | "video";
 
 export type SearchResultSourceType = "results" | "citations" | "sources";
+
+export type SearchResultSourceTier = "high" | "standard" | "low" | "suppressed";
+
+export type DiscardedSearchResultReason = "missing-url";
+
+export type DiscardedSearchResult = {
+  providerId: string;
+  sourceType: SearchResultSourceType;
+  rawRank: number;
+  reason: DiscardedSearchResultReason;
+  title?: string;
+  snippet?: string;
+  rawItem?: unknown;
+};
 
 export type NormalizedSearchResult = {
   title: string;
@@ -82,6 +155,7 @@ export type NormalizedSearchResult = {
   nativeScore?: number;
   rawRank: number;
   sourceType: SearchResultSourceType;
+  sourceTier: SearchResultSourceTier;
   snippetSource?: "provider" | "answer-fallback";
   flags: SearchResultFlag[];
   rawItem?: unknown;
@@ -118,6 +192,7 @@ export type ProviderRunResult = {
   attempts: number;
   rawPayload?: Record<string, unknown>;
   results: NormalizedSearchResult[];
+  discardedResults: DiscardedSearchResult[];
   answer?: ProviderAnswerDigest;
   retryHistory: ProviderRetryEvent[];
   error?: string;
@@ -129,6 +204,7 @@ export type SearchResultRanking = {
   score: number;
   nativeScore?: number;
   sourceType: SearchResultSourceType;
+  sourceTier: SearchResultSourceTier;
   flags: SearchResultFlag[];
 };
 
@@ -136,6 +212,7 @@ export type FusionScoreBreakdown = {
   bestVariantScore: number;
   corroborationBonus: number;
   bestRankBonus: number;
+  tierAdjustment: number;
   flagPenalty: number;
   finalScore: number;
 };
@@ -145,6 +222,7 @@ export type FusionRankingExplanation = {
   rank: number;
   scoreBreakdown: FusionScoreBreakdown;
   tieBreakers: {
+    bestSourceTier: SearchResultSourceTier;
     bestRank: number;
     providerCount: number;
     title: string;
@@ -181,10 +259,69 @@ export type FusionMergedResult = {
   providerCount: number;
   score: number;
   bestRank: number;
+  bestSourceTier: SearchResultSourceTier;
   flags: SearchResultFlag[];
   rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];
   ranking: FusionRankingExplanation;
+};
+
+export type EvidenceTableColumnKey =
+  | "rank"
+  | "title"
+  | "url"
+  | "providers"
+  | "providerCount"
+  | "bestRank"
+  | "score"
+  | "answerCitationCount"
+  | "flags";
+
+export type EvidenceTableColumn = {
+  key: EvidenceTableColumnKey;
+  label: string;
+  description: string;
+};
+
+export type FusionEvidenceProvider = {
+  providerId: string;
+  rawRank: number;
+  score: number;
+  nativeScore?: number;
+  sourceType: SearchResultSourceType;
+  snippet?: string;
+  snippetSource?: "provider" | "answer-fallback";
+  flags: SearchResultFlag[];
+};
+
+export type FusionEvidenceCitationSupport = {
+  count: number;
+  providerCount: number;
+  providers: string[];
+};
+
+export type FusionEvidenceRow = {
+  rowId: string;
+  rank: number;
+  title: string;
+  url: string;
+  canonicalUrl: string;
+  siteName?: string;
+  snippet?: string;
+  providers: string[];
+  providerCount: number;
+  bestRank: number;
+  score: number;
+  flags: SearchResultFlag[];
+  answerCitationSupport: FusionEvidenceCitationSupport;
+  providerEvidence: FusionEvidenceProvider[];
+};
+
+export type FusionEvidenceTable = {
+  version: 1;
+  columns: EvidenceTableColumn[];
+  rowCount: number;
+  rows: FusionEvidenceRow[];
 };
 
 export type SearchRuntime = {
@@ -212,6 +349,7 @@ export type FusionSearchPayload = {
     ok: boolean;
     tookMs: number;
     rawCount: number;
+    discardedCount: number;
     attempts: number;
     configured: boolean;
     error?: string;
@@ -221,17 +359,21 @@ export type FusionSearchPayload = {
     ok: boolean;
     tookMs: number;
     rawCount: number;
+    discardedCount: number;
     attempts: number;
     configured: boolean;
     error?: string;
     answer?: ProviderAnswerDigest;
     results: NormalizedSearchResult[];
+    discardedResults: DiscardedSearchResult[];
     rawPayload?: Record<string, unknown>;
     retryHistory: ProviderRetryEvent[];
   }>;
+  discardedResults: DiscardedSearchResult[];
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
   ranking: FusionRankingMeta;
+  evidenceTable: FusionEvidenceTable;
   externalContent: {
     untrusted: true;
     source: "web_search";

@@ -139,6 +139,7 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   assert.equal(mergedDocs?.bestRank, 1);
   assert.equal(mergedDocs?.variants.length, 3);
   assert.equal(mergedDocs?.rankings.length, 3);
+  assert.equal(mergedDocs?.bestSourceTier, "high");
   assert.deepEqual(mergedDocs?.flags, ["redirect-wrapper", "tracking-stripped"]);
   assert.equal(mergedDocs?.ranking.strategy, "merged-score-v1");
   assert.equal(mergedDocs?.ranking.rank, 1);
@@ -150,7 +151,67 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
     })?.metadata?.provider,
     "brave",
   );
+
+  assert.equal(payload.evidenceTable.version, 1);
+  assert.equal(payload.evidenceTable.rowCount, payload.results.length);
+  assert.deepEqual(payload.evidenceTable.columns.map((column) => column.key), [
+    "rank",
+    "title",
+    "url",
+    "providers",
+    "providerCount",
+    "bestRank",
+    "score",
+    "answerCitationCount",
+    "flags",
+  ]);
+  const evidenceDocs = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+  assert.equal(evidenceDocs?.rank, 1);
+  assert.deepEqual(evidenceDocs?.providers, ["brave", "duckduckgo", "tavily"]);
+  assert.equal(evidenceDocs?.providerEvidence.length, 3);
+  assert.equal(evidenceDocs?.answerCitationSupport.count, 0);
+
   assert.equal(payload.providersSucceeded.length, 3);
+});
+
+
+test("runSearchFusion keeps missing-url junk as non-merged provenance", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "brave",
+        result: {
+          results: [
+            {
+              title: "Knowledge panel",
+              description: "No URL attached",
+              kind: "infobox",
+            },
+            {
+              title: "OpenClaw docs",
+              url: "https://docs.openclaw.ai/tools/web",
+              description: "Official docs",
+            },
+          ],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw web docs",
+      providers: ["brave"],
+    },
+  });
+
+  assert.deepEqual(payload.providersSucceeded, ["brave"]);
+  assert.equal(payload.results.length, 1);
+  assert.equal(payload.discardedResults.length, 1);
+  assert.equal(payload.discardedResults[0]?.reason, "missing-url");
+  assert.equal(payload.providerRuns[0]?.discardedResults.length, 1);
+  assert.equal(payload.providerDetails[0]?.discardedCount, 1);
 });
 
 test("runSearchFusion uses configured default providers and excludes itself", async () => {
@@ -188,6 +249,20 @@ test("runSearchFusion honors explicit request mode", async () => {
   assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
 });
 
+test("runSearchFusion provides built-in starter modes when custom modes are absent", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw",
+      mode: "balanced",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave", "gemini"]);
+});
+
 test("runSearchFusion falls back to all configured providers when no defaults or mode are set", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,
@@ -215,11 +290,31 @@ test("runSearchFusion includes empty ranking metadata when no providers are avai
 
   assert.equal(payload.results.length, 0);
   assert.equal(payload.ranking.strategy, "merged-score-v1");
-  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
+  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestSourceTier:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
   assert.equal(payload.ranking.consideredCount, 0);
   assert.equal(payload.ranking.returnedCount, 0);
   assert.equal(payload.ranking.droppedCount, 0);
   assert.deepEqual(payload.ranking.dropped, []);
+});
+
+test("runSearchFusion treats custom modes as authoritative", async () => {
+  await assert.rejects(
+    async () =>
+      await runSearchFusion({
+        runtime: createRuntime() as never,
+        config: {},
+        pluginConfig: {
+          modes: {
+            custom: ["brave"],
+          },
+        },
+        request: {
+          query: "openclaw",
+          mode: "balanced",
+        },
+      }),
+    /Unknown Search Fusion mode: balanced/,
+  );
 });
 
 test("runSearchFusion throws on unknown explicit mode", async () => {
@@ -261,6 +356,65 @@ test("runSearchFusion preserves full answer content and raw payloads for answer-
   assert.ok(payload.results.some((result) => result.providers.includes("gemini")));
   assert.ok(payload.results.some((result) => result.providers.includes("tavily")));
   assert.match(String(payload.providerRuns[0]?.rawPayload?.content ?? ""), /grounded summary/i);
+
+  const docsEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+  const githubEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://github.com/openclaw/openclaw",
+  );
+  assert.equal(docsEvidence?.answerCitationSupport.count, 1);
+  assert.deepEqual(docsEvidence?.answerCitationSupport.providers, ["gemini"]);
+  assert.equal(githubEvidence?.answerCitationSupport.count, 1);
+  assert.deepEqual(githubEvidence?.providerEvidence.map((entry) => entry.sourceType), ["citations"]);
+});
+
+test("runSearchFusion evidenceTable tracks citation counts and unique providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      providers: [
+        { id: "gemini", label: "Gemini", configured: true, autoDetectOrder: 20 },
+        { id: "kimi", label: "Kimi", configured: true, autoDetectOrder: 25 },
+        { id: "search-fusion", label: "Search Fusion", configured: true, autoDetectOrder: 999 },
+      ],
+      search: async ({ providerId }) => {
+        if (providerId === "gemini") {
+          return {
+            provider: "gemini",
+            result: {
+              content: "Gemini synthesis",
+              citations: [
+                "https://docs.openclaw.ai/tools/web",
+                "https://docs.openclaw.ai/tools/web?utm_source=gemini",
+              ],
+            },
+          };
+        }
+
+        return {
+          provider: providerId ?? "kimi",
+          result: {
+            content: "Kimi synthesis",
+            citations: ["https://docs.openclaw.ai/tools/web"],
+          },
+        };
+      },
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "citation corroboration",
+      providers: ["gemini", "kimi"],
+    },
+  });
+
+  const docsEvidence = payload.evidenceTable.rows.find(
+    (row) => row.canonicalUrl === "https://docs.openclaw.ai/tools/web",
+  );
+
+  assert.equal(docsEvidence?.answerCitationSupport.count, 3);
+  assert.equal(docsEvidence?.answerCitationSupport.providerCount, 2);
+  assert.deepEqual(docsEvidence?.answerCitationSupport.providers, ["gemini", "kimi"]);
 });
 
 test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", async () => {
@@ -304,7 +458,9 @@ test("runSearchFusion ranks clean result-style hits ahead of sponsored noise", a
   });
 
   assert.equal(payload.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(payload.results[0]?.bestSourceTier, "high");
   assert.deepEqual(payload.results[1]?.flags, ["sponsored"]);
+  assert.equal(payload.results[1]?.bestSourceTier, "suppressed");
 });
 
 test("runSearchFusion treats keyless providers like DuckDuckGo as configured", async () => {
@@ -490,6 +646,93 @@ test("runSearchFusion passes providerConfig timeout overrides", async () => {
   assert.deepEqual(payload.providersSucceeded, ["gemini"]);
 });
 
+test("runSearchFusion applies provider weight multipliers to ranking scores", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "brave",
+        result: {
+          results: [
+            {
+              title: providerId === "brave" ? "Alpha source" : "Zulu source",
+              url: providerId === "brave" ? "https://example.com/alpha" : "https://example.com/zulu",
+              description: `${providerId} result`,
+            },
+          ],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 0.5,
+        },
+        gemini: {
+          weight: 1.5,
+        },
+      },
+    },
+    request: {
+      query: "provider weighting",
+      providers: ["brave", "gemini"],
+    },
+  });
+
+  const braveRun = payload.providerRuns.find((run) => run.provider === "brave");
+  const geminiRun = payload.providerRuns.find((run) => run.provider === "gemini");
+
+  assert.equal(braveRun?.results[0]?.score, 0.54);
+  assert.equal(geminiRun?.results[0]?.score, 1.62);
+  assert.equal(payload.results[0]?.canonicalUrl, "https://example.com/zulu");
+});
+
+test("runSearchFusion clamps provider weight overrides to a safe range", async () => {
+  const runtime = createRuntime({
+    search: async ({ providerId }) => ({
+      provider: providerId ?? "brave",
+      result: {
+        results: [{ title: "Seed result", url: `https://example.com/${providerId ?? "brave"}` }],
+      },
+    }),
+  }) as never;
+
+  const highWeightPayload = await runSearchFusion({
+    runtime,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 100,
+        },
+      },
+    },
+    request: {
+      query: "high provider weight",
+      providers: ["brave"],
+    },
+  });
+
+  const lowWeightPayload = await runSearchFusion({
+    runtime,
+    config: {},
+    pluginConfig: {
+      providerConfig: {
+        brave: {
+          weight: 0,
+        },
+      },
+    },
+    request: {
+      query: "low provider weight",
+      providers: ["brave"],
+    },
+  });
+
+  assert.equal(highWeightPayload.providerRuns[0]?.results[0]?.score, 5.4);
+  assert.equal(lowWeightPayload.providerRuns[0]?.results[0]?.score, 0.108);
+});
+
 test("runSearchFusion still honors legacy providerRetries overrides", async () => {
   let attempts = 0;
   const payload = await runSearchFusion({
@@ -596,6 +839,42 @@ test("runSearchFusion tolerates provider failures and reports them", async () =>
   assert.equal(payload.results.length, 2);
 });
 
+
+test("runSearchFusion isolates unexpected provider pipeline crashes", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "unknown",
+        result: {
+          results: [{ title: `${providerId} ok`, url: `https://example.com/${providerId}` }],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {
+      retry: {
+        maxAttempts: 1,
+      },
+      providerConfig: new Proxy({}, {
+        get: (_target, prop) => {
+          if (prop === "gemini") {
+            throw new Error("gemini pipeline blew up");
+          }
+          return undefined;
+        },
+      }),
+    },
+    request: {
+      query: "pipeline isolation",
+      providers: ["brave", "gemini", "tavily"],
+    },
+  });
+
+  assert.deepEqual(payload.providersSucceeded, ["brave", "tavily"]);
+  assert.deepEqual(payload.providersFailed, [{ provider: "gemini", error: "gemini pipeline blew up" }]);
+  assert.equal(payload.providerRuns.find((run) => run.provider === "gemini")?.ok, false);
+});
+
 test("runSearchFusion enforces per-provider timeouts", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime({
@@ -652,7 +931,7 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.ok(payload.providerRuns.every((run) => (run.ok ? Boolean(run.rawPayload) : true)));
 
   assert.equal(payload.ranking.strategy, "merged-score-v1");
-  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
+  assert.deepEqual(payload.ranking.sortOrder, ["score:desc", "bestSourceTier:desc", "bestRank:asc", "providerCount:desc", "title:asc"]);
   assert.equal(payload.ranking.consideredCount, 3);
   assert.equal(payload.ranking.returnedCount, 2);
   assert.equal(payload.ranking.droppedCount, 1);
@@ -663,10 +942,152 @@ test("runSearchFusion honors request maxMergedResults without losing provider pa
   assert.equal(payload.ranking.dropped[0]?.canonicalUrl, "https://github.com/openclaw/openclaw");
   assert.equal(payload.ranking.dropped[0]?.bestRank, 2);
   assert.equal(payload.ranking.dropped[0]?.providerCount, 1);
-  assert.ok(Math.abs((payload.ranking.dropped[0]?.score ?? 0) - 0.9724) < 0.0001);
+  assert.ok(Math.abs((payload.ranking.dropped[0]?.score ?? 0) - 0.46808) < 0.0001);
   assert.deepEqual(
     payload.results.map((result) => result.ranking.rank),
     [1, 2],
   );
   assert.ok(payload.results.every((result) => result.ranking.scoreBreakdown.finalScore === result.score));
+});
+
+test("runSearchFusion routes by intent hint when intentProviders is configured", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        research: ["gemini", "tavily"],
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "deep dive into openclaw plugin sdk",
+      intent: "research",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
+});
+
+test("runSearchFusion intent does not override explicit providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "explicit override test",
+      providers: ["tavily"],
+      intent: "keyword",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["tavily"]);
+});
+
+test("runSearchFusion intent does not override explicit mode", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      modes: {
+        deep: ["gemini", "tavily"],
+      },
+      intentProviders: {
+        keyword: ["brave"],
+      },
+    },
+    request: {
+      query: "mode wins over intent",
+      mode: "deep",
+      intent: "keyword",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["gemini", "tavily"]);
+});
+
+test("runSearchFusion falls through to defaults when intent maps to no available providers", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime() as never,
+    config: {},
+    pluginConfig: {
+      intentProviders: {
+        answer: ["perplexity"],
+      },
+      defaultProviders: ["brave"],
+    },
+    request: {
+      query: "fallthrough when intent providers unavailable",
+      intent: "answer",
+    },
+  });
+
+  assert.deepEqual(payload.providersQueried, ["brave"]);
+});
+
+test("runSearchFusion sourceTierMode strict suppresses citation-first noise vs off", async () => {
+  const sharedRuntime = createRuntime({
+    search: async ({ providerId }) => {
+      if (providerId === "gemini") {
+        return {
+          provider: "gemini",
+          result: {
+            results: [
+              {
+                title: "Official docs",
+                url: "https://docs.openclaw.ai/tools/web",
+                score: 0.3,
+              },
+            ],
+            citations: [
+              {
+                title: "Citation-heavy blog",
+                url: "https://example.com/citation-blog",
+                score: 2,
+              },
+            ],
+          },
+        };
+      }
+
+      return {
+        provider: providerId ?? "gemini",
+        result: {
+          results: [{ title: "Other", url: `https://example.com/${providerId}` }],
+        },
+      };
+    },
+  }) as never;
+
+  const offPayload = await runSearchFusion({
+    runtime: sharedRuntime,
+    config: {},
+    pluginConfig: {
+      sourceTierMode: "off",
+    },
+    request: {
+      query: "source tier off",
+      providers: ["gemini"],
+    },
+  });
+
+  const strictPayload = await runSearchFusion({
+    runtime: sharedRuntime,
+    config: {},
+    pluginConfig: {
+      sourceTierMode: "strict",
+    },
+    request: {
+      query: "source tier strict",
+      providers: ["gemini"],
+    },
+  });
+
+  assert.equal(offPayload.results[0]?.canonicalUrl, "https://example.com/citation-blog");
+  assert.equal(strictPayload.results[0]?.canonicalUrl, "https://docs.openclaw.ai/tools/web");
+  assert.equal(strictPayload.results[1]?.bestSourceTier, "low");
 });

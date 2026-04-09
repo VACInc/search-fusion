@@ -1,14 +1,53 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { discoverProviders } from "./src/provider-discovery.js";
+import {
+  ALL_PROVIDER_CAPABILITIES,
+  filterByAnyCapability,
+  filterByCapabilities,
+  hasCapability,
+  resolveProviderCapabilities,
+  type ProviderCapability,
+} from "./src/provider-capabilities.js";
 import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
 import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
+
+// Re-export the capability taxonomy so consumers can import directly from the
+// plugin entry point without knowing internal file structure.
+export {
+  ALL_PROVIDER_CAPABILITIES,
+  filterByAnyCapability,
+  filterByCapabilities,
+  hasCapability,
+  resolveProviderCapabilities,
+};
+export type { ProviderCapability };
 
 const SearchFusionParameters = Type.Object(
   {
     query: Type.String({ description: "Search query string." }),
+    intent: Type.Optional(
+      Type.Union(
+        [
+          Type.Literal("research"),
+          Type.Literal("keyword"),
+          Type.Literal("answer"),
+          Type.Literal("news"),
+          Type.Literal("local"),
+        ],
+        {
+          description:
+            "Optional intent hint that biases provider selection without overriding explicit providers or mode. " +
+            "research: prefer answer/grounding providers (Gemini, Perplexity, Tavily). " +
+            "keyword: prefer fast index-based providers (Brave, DuckDuckGo). " +
+            "answer: prefer answer-style providers (Gemini, Grok, Perplexity). " +
+            "news: prefer freshness-optimized providers. " +
+            "local: prefer providers with local/map results.",
+        },
+      ),
+    ),
     mode: Type.Optional(
-      Type.String({ description: "Optional user-defined mode name from Search Fusion config (for example fast, balanced, deep, or a custom mode)." }),
+      Type.String({ description: "Optional mode name. Uses configured modes, or built-in starter modes (fast, balanced, deep) when custom modes are not set." }),
     ),
     providers: Type.Optional(
       Type.Array(
@@ -170,7 +209,7 @@ const plugin = {
           : providers;
         const lines = visibleProviders.map(
           (provider) =>
-            `- ${provider.id}: ${provider.label}${provider.configured ? " [configured]" : " [not configured]"}${provider.hint ? ` — ${provider.hint}` : ""}`,
+            `- ${provider.id}: ${provider.label}${provider.configured ? " [configured]" : " [not configured]"}${(provider.capabilities ?? []).length > 0 ? ` [${(provider.capabilities ?? []).join(", ")}]` : ""}${provider.hint ? ` — ${provider.hint}` : ""}`,
         );
 
         return asJsonResult({
