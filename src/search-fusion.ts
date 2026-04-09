@@ -381,6 +381,7 @@ async function runProvider(params: {
         attempts: attempt,
         rawPayload: response.result,
         results: normalized.results,
+        discardedResults: normalized.discardedResults,
         answer: normalized.answer,
         retryHistory,
       };
@@ -398,6 +399,7 @@ async function runProvider(params: {
           attempts: attempt,
           rawPayload: lastRawPayload,
           results: [],
+          discardedResults: [],
           retryHistory,
           error: lastError,
         };
@@ -419,6 +421,7 @@ async function runProvider(params: {
     attempts: retryPolicy.maxAttempts,
     rawPayload: lastRawPayload,
     results: [],
+    discardedResults: [],
     retryHistory,
     error: lastError ?? "Unknown error",
   };
@@ -457,6 +460,7 @@ export async function runSearchFusion(params: {
       providersFailed: [],
       providerDetails: [],
       providerRuns: [],
+      discardedResults: [],
       answers: [],
       results: [],
       externalContent: {
@@ -512,6 +516,7 @@ export async function runSearchFusion(params: {
   });
 
   const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
+  const discardedResults = providerRuns.flatMap((run) => run.discardedResults);
   const answers = providerRuns
     .map((run) => run.answer)
     .filter((answer): answer is NonNullable<ProviderRunResult["answer"]> => Boolean(answer));
@@ -532,6 +537,7 @@ export async function runSearchFusion(params: {
       ok: run.ok,
       tookMs: run.tookMs,
       rawCount: run.rawCount,
+      discardedCount: run.discardedResults.length,
       attempts: run.attempts,
       configured: run.configured,
       error: run.error,
@@ -541,14 +547,17 @@ export async function runSearchFusion(params: {
       ok: run.ok,
       tookMs: run.tookMs,
       rawCount: run.rawCount,
+      discardedCount: run.discardedResults.length,
       attempts: run.attempts,
       configured: run.configured,
       error: run.error,
       answer: run.answer,
       results: run.results,
+      discardedResults: run.discardedResults,
       rawPayload: run.rawPayload,
       retryHistory: run.retryHistory,
     })),
+    discardedResults,
     answers,
     results: mergedResults,
     externalContent: {
@@ -583,6 +592,11 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
   } else {
     lines.push("");
     lines.push("No merged results.");
+  }
+
+  if (payload.discardedResults.length > 0) {
+    lines.push("");
+    lines.push(`Preserved ${payload.discardedResults.length} non-merged item${payload.discardedResults.length === 1 ? "" : "s"} as provenance evidence.`);
   }
 
   if (payload.answers.length > 0) {

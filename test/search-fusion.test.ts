@@ -149,6 +149,44 @@ test("runSearchFusion merges duplicate URLs across providers and keeps provider 
   assert.equal(payload.providersSucceeded.length, 3);
 });
 
+
+test("runSearchFusion keeps missing-url junk as non-merged provenance", async () => {
+  const payload = await runSearchFusion({
+    runtime: createRuntime({
+      search: async ({ providerId }) => ({
+        provider: providerId ?? "brave",
+        result: {
+          results: [
+            {
+              title: "Knowledge panel",
+              description: "No URL attached",
+              kind: "infobox",
+            },
+            {
+              title: "OpenClaw docs",
+              url: "https://docs.openclaw.ai/tools/web",
+              description: "Official docs",
+            },
+          ],
+        },
+      }),
+    }) as never,
+    config: {},
+    pluginConfig: {},
+    request: {
+      query: "openclaw web docs",
+      providers: ["brave"],
+    },
+  });
+
+  assert.deepEqual(payload.providersSucceeded, ["brave"]);
+  assert.equal(payload.results.length, 1);
+  assert.equal(payload.discardedResults.length, 1);
+  assert.equal(payload.discardedResults[0]?.reason, "missing-url");
+  assert.equal(payload.providerRuns[0]?.discardedResults.length, 1);
+  assert.equal(payload.providerDetails[0]?.discardedCount, 1);
+});
+
 test("runSearchFusion uses configured default providers and excludes itself", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,

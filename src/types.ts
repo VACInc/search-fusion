@@ -70,6 +70,18 @@ export type SearchResultFlag =
 
 export type SearchResultSourceType = "results" | "citations" | "sources";
 
+export type DiscardedSearchResultReason = "missing-url";
+
+export type DiscardedSearchResult = {
+  providerId: string;
+  sourceType: SearchResultSourceType;
+  rawRank: number;
+  reason: DiscardedSearchResultReason;
+  title?: string;
+  snippet?: string;
+  rawItem?: unknown;
+};
+
 export type NormalizedSearchResult = {
   title: string;
   url: string;
@@ -118,6 +130,7 @@ export type ProviderRunResult = {
   attempts: number;
   rawPayload?: Record<string, unknown>;
   results: NormalizedSearchResult[];
+  discardedResults: DiscardedSearchResult[];
   answer?: ProviderAnswerDigest;
   retryHistory: ProviderRetryEvent[];
   error?: string;
@@ -172,6 +185,7 @@ export type FusionSearchPayload = {
     ok: boolean;
     tookMs: number;
     rawCount: number;
+    discardedCount: number;
     attempts: number;
     configured: boolean;
     error?: string;
@@ -181,14 +195,17 @@ export type FusionSearchPayload = {
     ok: boolean;
     tookMs: number;
     rawCount: number;
+    discardedCount: number;
     attempts: number;
     configured: boolean;
     error?: string;
     answer?: ProviderAnswerDigest;
     results: NormalizedSearchResult[];
+    discardedResults: DiscardedSearchResult[];
     rawPayload?: Record<string, unknown>;
     retryHistory: ProviderRetryEvent[];
   }>;
+  discardedResults: DiscardedSearchResult[];
   answers: ProviderAnswerDigest[];
   results: FusionMergedResult[];
   externalContent: {
