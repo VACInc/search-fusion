@@ -379,6 +379,7 @@ export async function runSearchFusion(params: {
     availableProviders,
     requestMode: params.request.mode,
     requestProviders: params.request.providers,
+    requestMaxCostTier: params.request.maxCostTier,
     config: brokerConfig,
   });
 

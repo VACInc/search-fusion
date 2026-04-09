@@ -1,5 +1,7 @@
 export type SearchFusionModeMap = Record<string, string[]>;
 
+export type ProviderCostTier = "cheap" | "standard" | "premium";
+
 export type SearchFusionRetryConfig = {
   maxAttempts?: number;
   backoffMs?: number;
@@ -18,6 +20,8 @@ export type SearchFusionConfig = {
   modes?: SearchFusionModeMap;
   defaultProviders?: string[];
   excludeProviders?: string[];
+  providerCostTiers?: Record<string, ProviderCostTier>;
+  defaultMaxCostTier?: ProviderCostTier;
   countPerProvider?: number;
   maxMergedResults?: number;
   providerTimeoutMs?: number;
@@ -30,6 +34,7 @@ export type ProviderSelectionRequest = {
   query: string;
   mode?: string;
   providers?: string[];
+  maxCostTier?: ProviderCostTier;
   count?: number;
   maxMergedResults?: number;
   country?: string;

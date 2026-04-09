@@ -57,6 +57,13 @@ Optional plugin config:
           },
           "defaultMode": "balanced",
           "excludeProviders": ["grok"],
+          "providerCostTiers": {
+            "duckduckgo": "cheap",
+            "brave": "standard",
+            "tavily": "standard",
+            "gemini": "premium"
+          },
+          "defaultMaxCostTier": "standard",
           "countPerProvider": 5,
           "maxMergedResults": 10,
           "providerTimeoutMs": 15000,
@@ -88,8 +95,11 @@ Resolution order:
 - configured `defaultMode`
 - configured `defaultProviders` (backward compatibility)
 - otherwise all configured providers
+- then apply `maxCostTier` (request) or `defaultMaxCostTier` (config); if nothing fits, fall back to the cheapest available tier
 
 `providerConfig.<id>` is the canonical place for per-provider overrides like `retry`, `timeoutMs`, and `count`.
+
+Cost-aware routing is optional. Define `providerCostTiers` and pass `maxCostTier` per request (or set `defaultMaxCostTier`) to keep searches budget-friendly.
 
 If you want the built-in `web_search` tool to route through the broker by default:
 
@@ -119,6 +129,7 @@ Supported arguments:
 - `query`
 - `mode` — user-defined mode name from plugin config
 - `providers` — provider ids, or `all`
+- `maxCostTier` — optional cost cap (`cheap`, `standard`, `premium`)
 - `count`
 - `maxMergedResults`
 - `country`
@@ -145,6 +156,7 @@ pnpm test
 ## Current behavior
 
 - no hardcoded modes; users define modes in config if they want them
+- optional cost-aware routing via `providerCostTiers` + `maxCostTier`/`defaultMaxCostTier`
 - falls back to all configured providers when nothing else is specified
 - treats keyless providers (for example DuckDuckGo) as configured/available
 - excludes itself to avoid recursion
@@ -159,7 +171,6 @@ pnpm test
 ## Next upgrades
 
 - provider weighting
-- cost-aware routing modes
 - result reranking beyond URL dedupe
 - caching at the broker layer
 - optional fetch/expansion of top merged hits
