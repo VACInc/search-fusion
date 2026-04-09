@@ -12,9 +12,16 @@ import type {
   SearchFusionRetryConfig,
   SearchResultFlag,
   SearchRuntime,
+  SourceTierMode,
 } from "./types.js";
 import { discoverProviders, resolveSelectedProviders } from "./provider-discovery.js";
 import { normalizeProviderPayload } from "./result-normalizer.js";
+import {
+  compareSourceTierDesc,
+  coerceSourceTierMode,
+  pickHigherSourceTier,
+  sourceTierMergedAdjustment,
+} from "./source-tier.js";
 import { canonicalizeUrl } from "./text.js";
 
 const DEFAULT_COUNT_PER_PROVIDER = 5;
@@ -245,6 +252,7 @@ function asUnhandledProviderFailure(params: {
     rawCount: 0,
     attempts: 1,
     results: [],
+    discardedResults: [],
     retryHistory: [],
     error: asErrorMessage(params.error),
   };
@@ -290,14 +298,22 @@ function mergedFlagPenalty(flags: readonly SearchResultFlag[]): number {
   return penalty;
 }
 
-function computeMergedScore(entry: Omit<FusionMergedResult, "score">): number {
+function computeMergedScore(entry: Omit<FusionMergedResult, "score">, sourceTierMode: SourceTierMode): number {
   const bestVariantScore = entry.variants.reduce((max, variant) => Math.max(max, variant.score), 0);
   const corroborationBonus = Math.max(0, entry.providerCount - 1) * 0.12;
   const bestRankBonus = Math.max(0, 0.35 - (entry.bestRank - 1) * 0.04);
-  return Math.max(0.01, bestVariantScore + corroborationBonus + bestRankBonus - mergedFlagPenalty(entry.flags));
+  const tierAdjustment = sourceTierMergedAdjustment(entry.bestSourceTier, sourceTierMode);
+  return Math.max(
+    0.01,
+    bestVariantScore + corroborationBonus + bestRankBonus + tierAdjustment - mergedFlagPenalty(entry.flags),
+  );
 }
 
-function mergeResults(results: ProviderRunResult[], maxMergedResults: number): FusionMergedResult[] {
+function mergeResults(
+  results: ProviderRunResult[],
+  maxMergedResults: number,
+  sourceTierMode: SourceTierMode,
+): FusionMergedResult[] {
   const merged = new Map<string, Omit<FusionMergedResult, "score">>();
 
   for (const provider of results) {
@@ -313,6 +329,7 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
           providers: [item.providerId],
           providerCount: 1,
           bestRank: item.rawRank,
+          bestSourceTier: item.sourceTier,
           flags: [...item.flags],
           rankings: [
             {
@@ -321,6 +338,7 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
               score: item.score,
               nativeScore: item.nativeScore,
               sourceType: item.sourceType,
+              sourceTier: item.sourceTier,
               flags: [...item.flags],
             },
           ],
@@ -335,6 +353,7 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
       }
       existing.providerCount = existing.providers.length;
       existing.bestRank = Math.min(existing.bestRank, item.rawRank);
+      existing.bestSourceTier = pickHigherSourceTier(existing.bestSourceTier, item.sourceTier);
       existing.flags = mergeFlags(existing.flags, item.flags);
       existing.rankings.push({
         providerId: item.providerId,
@@ -342,6 +361,7 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
         score: item.score,
         nativeScore: item.nativeScore,
         sourceType: item.sourceType,
+        sourceTier: item.sourceTier,
         flags: [...item.flags],
       });
       if ((!existing.snippet || existing.snippet.length < (item.snippet?.length ?? 0)) && item.snippet) {
@@ -364,17 +384,29 @@ function mergeResults(results: ProviderRunResult[], maxMergedResults: number): F
       flags: [...entry.flags].sort(),
       rankings: [...entry.rankings].sort((a, b) => {
         if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
+        if (sourceTierMode !== "off") {
+          const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
+          if (tierDelta !== 0) return tierDelta;
+        }
         return a.providerId.localeCompare(b.providerId);
       }),
       variants: [...entry.variants].sort((a, b) => {
         if (a.rawRank !== b.rawRank) return a.rawRank - b.rawRank;
         if (b.score !== a.score) return b.score - a.score;
+        if (sourceTierMode !== "off") {
+          const tierDelta = compareSourceTierDesc(a.sourceTier, b.sourceTier);
+          if (tierDelta !== 0) return tierDelta;
+        }
         return a.providerId.localeCompare(b.providerId);
       }),
-      score: computeMergedScore(entry),
+      score: computeMergedScore(entry, sourceTierMode),
     }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
+      if (sourceTierMode !== "off") {
+        const tierDelta = compareSourceTierDesc(a.bestSourceTier, b.bestSourceTier);
+        if (tierDelta !== 0) return tierDelta;
+      }
       if (a.bestRank !== b.bestRank) return a.bestRank - b.bestRank;
       if (b.providerCount !== a.providerCount) return b.providerCount - a.providerCount;
       return a.title.localeCompare(b.title);
@@ -463,6 +495,7 @@ async function runProvider(params: {
   brokerConfig: SearchFusionConfig;
   request: ProviderSelectionRequest;
   provider: ResolvedProvider;
+  sourceTierMode: SourceTierMode;
 }): Promise<ProviderRunResult> {
   const start = Date.now();
   const providerConfig = resolveRuntimeProviderConfig(
@@ -492,6 +525,7 @@ async function runProvider(params: {
       const normalized = normalizeProviderPayload({
         providerId: params.provider.id,
         payload: response.result,
+        sourceTierMode: params.sourceTierMode,
       });
 
       if (normalized.error) {
@@ -561,6 +595,7 @@ export async function runSearchFusion(params: {
   request: ProviderSelectionRequest;
 }): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
+  const sourceTierMode = coerceSourceTierMode(brokerConfig.sourceTierMode);
   const availableProviders = discoverProviders({
     providers: params.runtime.webSearch.listProviders({ config: params.config }),
     config: params.config,
@@ -618,6 +653,7 @@ export async function runSearchFusion(params: {
         brokerConfig,
         request: params.request,
         provider,
+        sourceTierMode,
       }).catch((error) => {
         const rejection: ProviderRunTaskRejection = {
           error,
@@ -643,7 +679,7 @@ export async function runSearchFusion(params: {
     });
   });
 
-  const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults);
+  const mergedResults = mergeResults(providerRuns.filter((run) => run.ok), maxMergedResults, sourceTierMode);
   const discardedResults = providerRuns.flatMap((run) => run.discardedResults);
   const answers = providerRuns
     .map((run) => run.answer)
@@ -710,7 +746,9 @@ export function renderFusionSummary(payload: FusionSearchPayload, includeFailure
     payload.results.forEach((result, index) => {
       lines.push(`${index + 1}. ${result.title}`);
       lines.push(`   ${result.url}`);
-      lines.push(`   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank}`);
+      lines.push(
+        `   Providers: ${result.providers.join(", ")} • Best rank: #${result.bestRank} • Source tier: ${result.bestSourceTier}`,
+      );
       if (result.flags.length > 0) {
         lines.push(`   Flags: ${result.flags.join(", ")}`);
       }

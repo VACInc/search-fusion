@@ -21,19 +21,34 @@
         "type": "object",
         "additionalProperties": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "description": "User-defined mode map. Each key is a mode name and each value is a provider id list. When omitted, starter modes are auto-generated: fast (1 provider), balanced (2 providers), deep (all providers)."
       },
       "defaultProviders": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Backward-compatible fallback provider ids when a request omits both providers and mode."
       },
       "excludeProviders": {
         "type": "array",
-        "items": { "type": "string" },
+        "items": {
+          "type": "string"
+        },
         "description": "Provider ids to never use by default."
+      },
+      "sourceTierMode": {
+        "type": "string",
+        "enum": [
+          "off",
+          "balanced",
+          "strict"
+        ],
+        "description": "Source-tier reranking policy. off disables tier adjustments, balanced downranks lower-trust classes, strict applies stronger suppression."
       },
       "countPerProvider": {
         "type": "integer",

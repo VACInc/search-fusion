@@ -13,11 +13,14 @@ export type SearchFusionProviderConfig = {
   count?: number;
 };
 
+export type SourceTierMode = "off" | "balanced" | "strict";
+
 export type SearchFusionConfig = {
   defaultMode?: string;
   modes?: SearchFusionModeMap;
   defaultProviders?: string[];
   excludeProviders?: string[];
+  sourceTierMode?: SourceTierMode;
   countPerProvider?: number;
   maxMergedResults?: number;
   providerTimeoutMs?: number;
@@ -76,6 +79,8 @@ export type SearchResultFlag =
 
 export type SearchResultSourceType = "results" | "citations" | "sources";
 
+export type SearchResultSourceTier = "high" | "standard" | "low" | "suppressed";
+
 export type DiscardedSearchResultReason = "missing-url";
 
 export type DiscardedSearchResult = {
@@ -100,6 +105,7 @@ export type NormalizedSearchResult = {
   nativeScore?: number;
   rawRank: number;
   sourceType: SearchResultSourceType;
+  sourceTier: SearchResultSourceTier;
   snippetSource?: "provider" | "answer-fallback";
   flags: SearchResultFlag[];
   rawItem?: unknown;
@@ -148,6 +154,7 @@ export type SearchResultRanking = {
   score: number;
   nativeScore?: number;
   sourceType: SearchResultSourceType;
+  sourceTier: SearchResultSourceTier;
   flags: SearchResultFlag[];
 };
 
@@ -161,6 +168,7 @@ export type FusionMergedResult = {
   providerCount: number;
   score: number;
   bestRank: number;
+  bestSourceTier: SearchResultSourceTier;
   flags: SearchResultFlag[];
   rankings: SearchResultRanking[];
   variants: NormalizedSearchResult[];

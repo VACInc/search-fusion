@@ -25,6 +25,7 @@ test("normalizeProviderPayload maps structured results", () => {
   assert.equal(normalized.results[0]?.snippet, "Web search docs");
   assert.equal(normalized.results[0]?.snippetSource, "provider");
   assert.deepEqual(normalized.results[0]?.flags, ["tracking-stripped"]);
+  assert.equal(normalized.results[0]?.sourceTier, "high");
   assert.deepEqual((normalized.results[0]?.rawItem as { extra?: { provider?: string } })?.extra, {
     provider: "brave",
   });
@@ -51,6 +52,7 @@ test("normalizeProviderPayload unwraps redirect wrappers without losing original
     "https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Farticle%3Futm_source%3Dddg",
   );
   assert.deepEqual(normalized.results[0]?.flags, ["redirect-wrapper", "tracking-stripped"]);
+  assert.equal(normalized.results[0]?.sourceTier, "low");
 });
 
 test("normalizeProviderPayload preserves full answer content and citation details", () => {
@@ -72,6 +74,7 @@ test("normalizeProviderPayload preserves full answer content and citation detail
   assert.equal(normalized.answer?.citationDetails[1]?.title, "GitHub");
   assert.equal(normalized.results.length, 2);
   assert.equal(normalized.results[0]?.sourceType, "citations");
+  assert.equal(normalized.results[0]?.sourceTier, "low");
   assert.equal(normalized.results[0]?.snippetSource, "answer-fallback");
   assert.equal(normalized.results[1]?.title, "GitHub");
 });
@@ -104,6 +107,9 @@ test("normalizeProviderPayload tags sponsored/video/community items deterministi
   assert.deepEqual(normalized.results[0]?.flags, ["sponsored"]);
   assert.deepEqual(normalized.results[1]?.flags, ["community"]);
   assert.deepEqual(normalized.results[2]?.flags, ["video"]);
+  assert.equal(normalized.results[0]?.sourceTier, "suppressed");
+  assert.equal(normalized.results[1]?.sourceTier, "low");
+  assert.equal(normalized.results[2]?.sourceTier, "low");
 });
 
 
@@ -226,5 +232,31 @@ test("normalizeProviderPayload handles sources arrays from research-style provid
 
   assert.equal(normalized.results.length, 1);
   assert.equal(normalized.results[0]?.sourceType, "sources");
+  assert.equal(normalized.results[0]?.sourceTier, "standard");
   assert.equal(normalized.results[0]?.title, "Firecrawl blog");
+});
+
+test("normalizeProviderPayload applies sourceTierMode scoring deterministically", () => {
+  const payload = {
+    results: [{ title: "Direct result", url: "https://example.com/direct", score: 0.3 }],
+    citations: [{ title: "Citation result", url: "https://example.com/citation", score: 2 }],
+  };
+
+  const off = normalizeProviderPayload({
+    providerId: "gemini",
+    payload,
+    sourceTierMode: "off",
+  });
+  const strict = normalizeProviderPayload({
+    providerId: "gemini",
+    payload,
+    sourceTierMode: "strict",
+  });
+
+  const offCitation = off.results.find((result) => result.canonicalUrl === "https://example.com/citation");
+  const strictCitation = strict.results.find((result) => result.canonicalUrl === "https://example.com/citation");
+
+  assert.equal(offCitation?.sourceTier, "low");
+  assert.equal(strictCitation?.sourceTier, "low");
+  assert.ok((offCitation?.score ?? 0) > (strictCitation?.score ?? 0));
 });
