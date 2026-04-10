@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "openclaw/plugin-sdk/config-runtime";
 import { runSearchFusion } from "../src/search-fusion.js";
 
 function createRuntime(overrides?: {
@@ -118,6 +119,110 @@ function createRuntime(overrides?: {
     },
   };
 }
+
+test("runSearchFusion prefers the active runtime config snapshot for credential-backed providers", async () => {
+  clearRuntimeConfigSnapshot();
+  const rawConfig = {
+    tools: { web: { search: { provider: "search-fusion" } } },
+    plugins: {
+      entries: {
+        google: { config: { webSearch: { apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY" } } } },
+        brave: { config: { apiKey: { source: "env", provider: "default", id: "BRAVE_API_KEY" } } },
+      },
+    },
+  };
+  const runtimeConfig = {
+    tools: { web: { search: { provider: "search-fusion" } } },
+    plugins: {
+      entries: {
+        google: { config: { webSearch: { apiKey: "runtime-gemini-key" } } },
+        brave: { config: { apiKey: "runtime-brave-key" } },
+      },
+    },
+  };
+  const seen: { listProvidersConfigs: unknown[]; searchConfigs: unknown[] } = {
+    listProvidersConfigs: [],
+    searchConfigs: [],
+  };
+
+  setRuntimeConfigSnapshot(runtimeConfig as never, rawConfig as never);
+
+  try {
+    const payload = await runSearchFusion({
+      runtime: {
+        webSearch: {
+          listProviders: ({ config }: { config?: unknown } = {}) => {
+            seen.listProvidersConfigs.push(config);
+            return [
+              {
+                id: "brave",
+                label: "Brave",
+                autoDetectOrder: 10,
+                envVars: [],
+                getConfiguredCredentialValue: (cfg?: any) => cfg?.plugins?.entries?.brave?.config?.apiKey,
+                getCredentialValue: () => undefined,
+              },
+              {
+                id: "gemini",
+                label: "Gemini",
+                autoDetectOrder: 20,
+                envVars: [],
+                getConfiguredCredentialValue: (cfg?: any) =>
+                  cfg?.plugins?.entries?.google?.config?.webSearch?.apiKey,
+                getCredentialValue: () => undefined,
+              },
+              {
+                id: "search-fusion",
+                label: "Search Fusion",
+                autoDetectOrder: 999,
+                envVars: [],
+                getConfiguredCredentialValue: () => "always-enabled",
+                getCredentialValue: () => undefined,
+              },
+            ];
+          },
+          search: async ({ config, providerId }: { config?: unknown; providerId?: string; args: Record<string, unknown> }) => {
+            seen.searchConfigs.push(config);
+            return {
+              provider: providerId ?? "brave",
+              result:
+                providerId === "gemini"
+                  ? {
+                      content: "grounded answer",
+                      citations: ["https://docs.openclaw.ai/tools/web"],
+                    }
+                  : {
+                      results: [
+                        {
+                          title: "OpenClaw Docs",
+                          url: `https://docs.openclaw.ai/tools/web?src=${providerId}`,
+                          description: `${providerId} docs`,
+                        },
+                      ],
+                    },
+            };
+          },
+        },
+      } as never,
+      config: rawConfig,
+      pluginConfig: {},
+      request: {
+        query: "openclaw",
+        providers: ["brave", "gemini"],
+      },
+    });
+
+    assert.equal(payload.provider, "search-fusion");
+    assert.deepEqual(payload.configuredProviders, ["brave", "gemini"]);
+    assert.deepEqual(payload.providersQueried, ["brave", "gemini"]);
+    assert.ok(seen.listProvidersConfigs.length >= 1);
+    assert.ok(seen.listProvidersConfigs.every((config) => config === runtimeConfig));
+    assert.equal(seen.searchConfigs.length, 2);
+    assert.ok(seen.searchConfigs.every((config) => config === runtimeConfig));
+  } finally {
+    clearRuntimeConfigSnapshot();
+  }
+});
 
 test("runSearchFusion merges duplicate URLs across providers and keeps provider variants", async () => {
   const payload = await runSearchFusion({

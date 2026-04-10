@@ -1,3 +1,4 @@
+import { getRuntimeConfigSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import type {
   FusionEvidenceRow,
   FusionEvidenceTable,
@@ -728,9 +729,10 @@ export async function runSearchFusion(params: {
 }): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
   const sourceTierMode = coerceSourceTierMode(brokerConfig.sourceTierMode);
+  const runtimeConfig = getRuntimeConfigSnapshot() ?? params.config;
   const availableProviders = discoverProviders({
-    providers: params.runtime.webSearch.listProviders({ config: params.config }),
-    config: params.config,
+    providers: params.runtime.webSearch.listProviders({ config: runtimeConfig }),
+    config: runtimeConfig,
     selfId: SEARCH_FUSION_PROVIDER_ID,
   });
   const selectedProviders = resolveSelectedProviders({
@@ -783,7 +785,7 @@ export async function runSearchFusion(params: {
       startedAt,
       promise: runProvider({
         runtime: params.runtime,
-        config: params.config,
+        config: runtimeConfig,
         brokerConfig,
         request: params.request,
         provider,
