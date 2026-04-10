@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { clearRuntimeConfigSnapshot, setRuntimeConfigSnapshot } from "openclaw/plugin-sdk/config-runtime";
 import plugin from "../index.js";
 
 test("plugin registers provider and both tools", async () => {
+  clearRuntimeConfigSnapshot();
   const tools: Array<{ name: string; execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> }> = [];
   let provider: { id: string; createTool: () => { execute: (args: Record<string, unknown>) => Promise<unknown> } } | undefined;
 
@@ -133,4 +135,129 @@ test("plugin registers provider and both tools", async () => {
   };
   assert.equal(providerResult?.provider, "search-fusion");
   assert.deepEqual(providerResult?.providersQueried, ["brave", "gemini", "tavily"]);
+});
+
+test("plugin tools prefer the active runtime config snapshot over raw plugin config", async () => {
+  clearRuntimeConfigSnapshot();
+  const rawConfig = {
+    tools: { web: { search: { provider: "search-fusion" } } },
+    plugins: {
+      entries: {
+        google: {
+          config: {
+            webSearch: {
+              apiKey: { source: "env", provider: "default", id: "GEMINI_API_KEY" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const runtimeConfig = {
+    tools: { web: { search: { provider: "search-fusion" } } },
+    plugins: {
+      entries: {
+        google: {
+          config: {
+            webSearch: {
+              apiKey: "runtime-gemini-key",
+            },
+          },
+        },
+      },
+    },
+  };
+
+  setRuntimeConfigSnapshot(runtimeConfig as never, rawConfig as never);
+
+  try {
+    const tools: Array<{ name: string; execute: (_id: string, params: Record<string, unknown>) => Promise<unknown> }> = [];
+    let provider:
+      | { id: string; createTool: () => { execute: (args: Record<string, unknown>) => Promise<unknown> } }
+      | undefined;
+    const seen: { listProvidersConfig?: unknown; searchConfigs: unknown[] } = { searchConfigs: [] };
+
+    const api = {
+      config: rawConfig,
+      pluginConfig: {},
+      runtime: {
+        webSearch: {
+          listProviders: ({ config }: { config?: unknown } = {}) => {
+            seen.listProvidersConfig = config;
+            return [
+              {
+                id: "gemini",
+                label: "Gemini",
+                autoDetectOrder: 20,
+                envVars: [],
+                getConfiguredCredentialValue: (cfg?: any) =>
+                  cfg?.plugins?.entries?.google?.config?.webSearch?.apiKey,
+                getCredentialValue: () => undefined,
+              },
+              {
+                id: "search-fusion",
+                label: "Search Fusion",
+                autoDetectOrder: 999,
+                envVars: [],
+                getConfiguredCredentialValue: () => "always-enabled",
+                getCredentialValue: () => undefined,
+              },
+            ];
+          },
+          search: async ({ config, providerId }: { config?: unknown; providerId?: string }) => {
+            seen.searchConfigs.push(config);
+            return {
+              provider: providerId ?? "gemini",
+              result: {
+                content: "grounded answer",
+                citations: ["https://docs.openclaw.ai/tools/web"],
+              },
+            };
+          },
+        },
+      },
+      registerTool(tool: (typeof tools)[number]) {
+        tools.push(tool);
+      },
+      registerWebSearchProvider(entry: typeof provider) {
+        provider = entry;
+      },
+    };
+
+    plugin.register(api as never);
+
+    const providerListTool = tools.find((tool) => tool.name === "search_fusion_providers");
+    const fusionTool = tools.find((tool) => tool.name === "search_fusion");
+    assert.ok(providerListTool);
+    assert.ok(fusionTool);
+    assert.ok(provider);
+
+    const providersResult = (await providerListTool.execute("providers", {})) as {
+      details?: {
+        providers?: Array<{
+          id: string;
+          label: string;
+          configured: boolean;
+          autoDetectOrder?: number;
+          capabilities?: string[];
+        }>;
+      };
+    };
+    assert.equal(seen.listProvidersConfig, runtimeConfig);
+    assert.equal(providersResult.details?.providers?.length, 1);
+    assert.equal(providersResult.details?.providers?.[0]?.id, "gemini");
+    assert.equal(providersResult.details?.providers?.[0]?.label, "Gemini");
+    assert.equal(providersResult.details?.providers?.[0]?.configured, true);
+    assert.equal(providersResult.details?.providers?.[0]?.autoDetectOrder, 20);
+    assert.deepEqual(providersResult.details?.providers?.[0]?.capabilities, ["answer", "results"]);
+
+    await fusionTool.execute("fusion", { query: "openclaw", providers: ["gemini"] });
+    const providerTool = provider.createTool();
+    await providerTool.execute({ query: "openclaw", providers: ["gemini"] });
+
+    assert.equal(seen.searchConfigs.length, 2);
+    assert.ok(seen.searchConfigs.every((config) => config === runtimeConfig));
+  } finally {
+    clearRuntimeConfigSnapshot();
+  }
 });

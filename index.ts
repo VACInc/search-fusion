@@ -1,5 +1,6 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { getRuntimeConfigSnapshot, type OpenClawConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { discoverProviders } from "./src/provider-discovery.js";
 import {
   ALL_PROVIDER_CAPABILITIES,
@@ -10,7 +11,7 @@ import {
   type ProviderCapability,
 } from "./src/provider-capabilities.js";
 import { renderFusionSummary, runSearchFusion } from "./src/search-fusion.js";
-import type { ProviderSelectionRequest, SearchRuntime } from "./src/types.js";
+import type { ProviderSelectionRequest, RuntimeWebSearchProvider, SearchRuntime } from "./src/types.js";
 
 // Re-export the capability taxonomy so consumers can import directly from the
 // plugin entry point without knowing internal file structure.
@@ -125,6 +126,10 @@ function asJsonResult(payload: unknown): AgentToolJsonResult {
   };
 }
 
+function resolveRuntimeConfigSnapshot(fallback: OpenClawConfig): OpenClawConfig {
+  return getRuntimeConfigSnapshot() ?? fallback;
+}
+
 const ProviderListParameters = Type.Object(
   {
     onlyConfigured: Type.Optional(
@@ -156,7 +161,7 @@ function createSearchFusionProvider(api: SearchFusionPluginApi): SearchFusionWeb
       execute: async (args) =>
         await runSearchFusion({
           runtime: api.runtime,
-          config: api.config,
+          config: resolveRuntimeConfigSnapshot(api.config),
           pluginConfig: api.pluginConfig,
           request: args as ProviderSelectionRequest,
         }),
@@ -181,7 +186,7 @@ const plugin = {
       async execute(_id: string, params: SearchFusionRequest) {
         const payload = await runSearchFusion({
           runtime: searchApi.runtime,
-          config: searchApi.config,
+          config: resolveRuntimeConfigSnapshot(searchApi.config),
           pluginConfig: searchApi.pluginConfig,
           request: params as SearchFusionRequest,
         });
@@ -199,9 +204,12 @@ const plugin = {
       description: "List the web search providers visible to Search Fusion and whether they appear configured.",
       parameters: ProviderListParameters,
       async execute(_id: string, params: ProviderListRequest) {
+        const runtimeConfig = resolveRuntimeConfigSnapshot(searchApi.config);
         const providers = discoverProviders({
-          providers: searchApi.runtime.webSearch.listProviders({ config: searchApi.config }),
-          config: searchApi.config,
+          providers: searchApi.runtime.webSearch.listProviders({
+            config: runtimeConfig,
+          }) as RuntimeWebSearchProvider[],
+          config: runtimeConfig,
           selfId: "search-fusion",
         });
         const visibleProviders = params.onlyConfigured

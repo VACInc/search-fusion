@@ -19,12 +19,12 @@
     "README.md"
   ],
   "peerDependencies": {
-    "openclaw": ">=2026.3.22"
+    "openclaw": ">=2026.4.9"
   },
   "devDependencies": {
     "@sinclair/typebox": "0.34.48",
     "@types/node": "^22.15.30",
-    "openclaw": "2026.3.13",
+    "openclaw": "2026.4.9",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
