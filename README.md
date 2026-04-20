@@ -44,8 +44,6 @@ openclaw plugins install @vacinc/search-fusion
 openclaw plugins install clawhub:@vacinc/search-fusion
 ```
 
-Use the **scoped** package name. `clawhub:search-fusion` would only work if we published a second, separate unscoped package under that exact name. That would split installs, stars, and update provenance across two registry identities, which is dumb. Better to keep one canonical package: `@vacinc/search-fusion`.
-
 ## Configure
 
 Optional plugin config:

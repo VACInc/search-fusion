@@ -2,20 +2,12 @@
 
 Search Fusion repo rules.
 
-## ClawHub package identity constraints
+## ClawHub package identity
 
 Canonical package:
 - `@vacinc/search-fusion`
 
-Important platform constraint:
-- ClawHub ties the runtime plugin id (`search-fusion`) to a single package identity.
-- Attempting to publish a second package with the same plugin id fails with: `Plugin id "search-fusion" is already claimed by another package`.
-- Attempting to override the published package name without changing `package.json.name` also fails.
-
-Practical meaning:
-- You cannot publish both `@vacinc/search-fusion` and `search-fusion` as separate ClawHub code-plugin packages while keeping the same runtime plugin id.
-- If VAC wants both install spellings in the future, that requires ClawHub alias support or a platform change, not just repo changes.
-- Treat `@vacinc/search-fusion` as the only real ClawHub package unless the registry behavior changes.
+Keep install and publish guidance aligned to that package name.
 
 ## Tests are mandatory
 
@@ -37,7 +29,7 @@ If docs, metadata, or publish behavior changes, verify the affected files direct
 
 ## Docs and publish hygiene
 
-When install behavior, package identity, or ClawHub metadata changes:
+When install behavior or ClawHub metadata changes:
 - update `README.md`
 - update `package.json` metadata if needed
 - make sure ClawHub-required OpenClaw metadata stays present
