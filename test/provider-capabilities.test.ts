@@ -18,6 +18,7 @@ test("resolveProviderCapabilities returns registered capabilities for known prov
   assert.deepEqual(resolveProviderCapabilities("gemini"), ["answer", "results"]);
   assert.deepEqual(resolveProviderCapabilities("duckduckgo"), ["free-tier", "privacy", "results"]);
   assert.deepEqual(resolveProviderCapabilities("exa"), ["academic", "code", "neural", "results"]);
+  assert.deepEqual(resolveProviderCapabilities("minimax"), ["code", "results"]);
   assert.deepEqual(resolveProviderCapabilities("perplexity"), ["answer", "neural", "results"]);
   assert.deepEqual(resolveProviderCapabilities("tavily"), ["answer", "neural", "results"]);
 });
@@ -47,6 +48,7 @@ test("resolveProviderCapabilities results are sorted and match ALL_PROVIDER_CAPA
     "google",
     "grok",
     "kimi",
+    "minimax",
     "perplexity",
     "searxng",
     "serper",

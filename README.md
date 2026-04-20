@@ -52,14 +52,15 @@ Optional plugin config:
           "modes": {
             "fast": ["brave"],
             "balanced": ["brave", "tavily"],
-            "deep": ["brave", "tavily", "gemini"],
+            "deep": ["brave", "tavily", "gemini", "minimax"],
+            "coding": ["minimax", "brave"],
             "cheap": ["duckduckgo", "brave"],
-            "results": ["brave", "tavily", "duckduckgo"],
+            "results": ["brave", "duckduckgo", "minimax"],
             "answers": ["gemini"]
           },
           "intentProviders": {
-            "research": ["gemini", "tavily", "brave"],
-            "keyword":  ["brave", "duckduckgo"],
+            "research": ["gemini", "tavily", "brave", "minimax"],
+            "keyword":  ["brave", "duckduckgo", "minimax"],
             "answer":   ["gemini"],
             "news":     ["brave", "tavily"],
             "local":    ["brave"]
@@ -128,8 +129,8 @@ Supported intents:
 
 | Intent | Suggested use | Example providers |
 |---|---|---|
-| `research` | In-depth investigation; prefers answer/grounding | `gemini`, `tavily`, `brave` |
-| `keyword` | Classic keyword/web search | `brave`, `duckduckgo` |
+| `research` | In-depth investigation; prefers answer/grounding plus a strong technical-results provider | `gemini`, `tavily`, `brave`, `minimax` |
+| `keyword` | Classic keyword/web search | `brave`, `duckduckgo`, `minimax` |
 | `answer` | Direct answer expected | `gemini`, `perplexity`, `grok` |
 | `news` | Recent news / current events | `brave`, `tavily` |
 | `local` | Location-aware queries | `brave` |
@@ -143,8 +144,8 @@ Example config snippet:
       "search-fusion": {
         "config": {
           "intentProviders": {
-            "research": ["gemini", "tavily", "brave"],
-            "keyword":  ["brave", "duckduckgo"],
+            "research": ["gemini", "tavily", "brave", "minimax"],
+            "keyword":  ["brave", "duckduckgo", "minimax"],
             "answer":   ["gemini", "perplexity"],
             "news":     ["brave", "tavily"],
             "local":    ["brave"]
@@ -276,10 +277,11 @@ import {
 } from "@vacinc/search-fusion";
 
 // What can brave do?
-resolveProviderCapabilities("brave");     // ["news", "privacy", "results"]
-resolveProviderCapabilities("gemini");    // ["answer", "results"]
-resolveProviderCapabilities("exa");       // ["academic", "code", "neural", "results"]
+resolveProviderCapabilities("brave");      // ["news", "privacy", "results"]
+resolveProviderCapabilities("gemini");     // ["answer", "results"]
+resolveProviderCapabilities("exa");        // ["academic", "code", "neural", "results"]
 resolveProviderCapabilities("duckduckgo"); // ["free-tier", "privacy", "results"]
+resolveProviderCapabilities("minimax");    // ["code", "results"]
 
 // Does tavily synthesise answers?
 hasCapability(resolveProviderCapabilities("tavily"), "answer"); // true
@@ -320,6 +322,7 @@ filterByAnyCapability(["brave", "duckduckgo", "gemini"], ["privacy", "free-tier"
 | `google` | `images`, `local`, `news`, `results`, `video` |
 | `grok` | `answer`, `news`, `results` |
 | `kimi` | `answer`, `results` |
+| `minimax` | `code`, `results` |
 | `perplexity` | `answer`, `neural`, `results` |
 | `searxng` | `free-tier`, `privacy`, `results` |
 | `serper` | `images`, `local`, `news`, `results`, `video` |

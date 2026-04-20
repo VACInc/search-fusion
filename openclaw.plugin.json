@@ -35,12 +35,12 @@
           "research": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Providers to use for research/in-depth queries (e.g. gemini, tavily, brave)."
+            "description": "Providers to use for research/in-depth queries (e.g. gemini, tavily, brave, minimax)."
           },
           "keyword": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "Providers to use for keyword/classic web searches (e.g. brave, duckduckgo)."
+            "description": "Providers to use for keyword/classic web searches (e.g. brave, duckduckgo, minimax)."
           },
           "answer": {
             "type": "array",

@@ -234,6 +234,33 @@ test("resolveSelectedProviders routes keyword intent to configured subset", () =
   assert.deepEqual(selected.map((provider) => provider.id), ["brave", "duckduckgo"]);
 });
 
+test("resolveSelectedProviders can route keyword intent to minimax when configured", () => {
+  const selected = resolveSelectedProviders({
+    availableProviders: [
+      {
+        id: "minimax",
+        label: "MiniMax",
+        autoDetectOrder: 15,
+        configured: true,
+      },
+      {
+        id: "brave",
+        label: "Brave",
+        autoDetectOrder: 10,
+        configured: true,
+      },
+    ],
+    requestIntent: "keyword",
+    config: {
+      intentProviders: {
+        keyword: ["minimax", "brave"],
+      },
+    },
+  });
+
+  assert.deepEqual(selected.map((provider) => provider.id), ["minimax", "brave"]);
+});
+
 test("resolveSelectedProviders intent does not override explicit providers", () => {
   const selected = resolveSelectedProviders({
     availableProviders: getDiscovered(),

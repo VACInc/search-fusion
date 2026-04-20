@@ -46,8 +46,8 @@ export type SearchFusionConfig = {
    * Example:
    * ```json
    * "intentProviders": {
-   *   "research": ["gemini", "tavily", "brave"],
-   *   "keyword":  ["brave", "duckduckgo"],
+   *   "research": ["gemini", "tavily", "brave", "minimax"],
+   *   "keyword":  ["brave", "duckduckgo", "minimax"],
    *   "answer":   ["gemini", "perplexity"],
    *   "news":     ["brave", "tavily"],
    *   "local":    ["brave"]

@@ -106,6 +106,7 @@ const PROVIDER_CAPABILITY_REGISTRY: Readonly<Record<string, readonly ProviderCap
   google: ["images", "local", "news", "results", "video"],
   grok: ["answer", "news", "results"],
   kimi: ["answer", "results"],
+  minimax: ["code", "results"],
   perplexity: ["answer", "neural", "results"],
   searxng: ["free-tier", "privacy", "results"],
   serper: ["images", "local", "news", "results", "video"],
