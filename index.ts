@@ -1,5 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
 import { getRuntimeConfigSnapshot, type OpenClawConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { discoverProviders } from "./src/provider-discovery.js";
 import {

@@ -18,8 +18,7 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run plugin:check
-      - run: pnpm run plugin:check:runtime
+      - run: pnpm run plugin:ci
       - uses: actions/upload-artifact@v5
         if: always()
         with:

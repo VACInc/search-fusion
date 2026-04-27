@@ -1,6 +1,6 @@
 {
   "name": "@vacinc/search-fusion",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Federated OpenClaw web search fusion that fans out across configured providers, merges results, and preserves attribution.",
   "type": "module",
   "openclaw": {
@@ -20,7 +20,8 @@
     "check": "tsc --noEmit",
     "test": "node --test --import tsx test/**/*.test.ts",
     "plugin:check": "plugin-inspector check --no-openclaw",
-    "plugin:check:runtime": "PLUGIN_INSPECTOR_EXECUTE_ISOLATED=1 plugin-inspector check --no-openclaw --runtime --mock-sdk"
+    "plugin:check:runtime": "PLUGIN_INSPECTOR_EXECUTE_ISOLATED=1 plugin-inspector check --no-openclaw --runtime --mock-sdk",
+    "plugin:ci": "PLUGIN_INSPECTOR_EXECUTE_ISOLATED=1 plugin-inspector ci --no-openclaw --runtime --mock-sdk"
   },
   "files": [
     "index.ts",
@@ -32,7 +33,7 @@
     "openclaw": ">=2026.4.9"
   },
   "devDependencies": {
-    "@openclaw/plugin-inspector": "0.1.2",
+    "@openclaw/plugin-inspector": "0.2.0",
     "@sinclair/typebox": "0.34.48",
     "@types/node": "^22.15.30",
     "openclaw": "2026.4.9",
