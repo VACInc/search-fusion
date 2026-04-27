@@ -1,6 +1,6 @@
 {
   "name": "@vacinc/search-fusion",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Federated OpenClaw web search fusion that fans out across configured providers, merges results, and preserves attribution.",
   "type": "module",
   "openclaw": {
@@ -39,5 +39,6 @@
     "openclaw": "2026.4.9",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
-  }
+  },
+  "packageManager": "pnpm@10.32.1"
 }
