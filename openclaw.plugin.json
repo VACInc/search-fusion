@@ -2,7 +2,7 @@
   "id": "search-fusion",
   "name": "Search Fusion",
   "description": "Federated web search fusion for OpenClaw that reuses configured providers in parallel.",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "uiHints": {
     "webSearch": {
       "label": "Search Fusion web_search provider",
@@ -34,27 +34,37 @@
         "properties": {
           "research": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Providers to use for research/in-depth queries (e.g. gemini, tavily, brave, minimax)."
           },
           "keyword": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Providers to use for keyword/classic web searches (e.g. brave, duckduckgo, minimax)."
           },
           "answer": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Providers to use for direct-answer queries (e.g. gemini, perplexity, grok)."
           },
           "news": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Providers to use for news/current-events queries (e.g. brave, tavily)."
           },
           "local": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "Providers to use for location-aware queries (e.g. brave)."
           }
         }
