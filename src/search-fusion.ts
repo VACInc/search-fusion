@@ -10,6 +10,7 @@ import type {
   ProviderRunResult,
   ProviderSelectionRequest,
   ResolvedProvider,
+  RuntimeWebSearchProvider,
   SearchFusionConfig,
   SearchFusionProviderConfig,
   SearchFusionRetryConfig,
@@ -40,6 +41,96 @@ const MAX_PROVIDER_WEIGHT = 5;
 const SEARCH_FUSION_PROVIDER_ID = "search-fusion";
 const MERGED_RANKING_STRATEGY = "merged-score-v1" as const;
 const MERGED_SORT_ORDER = ["score:desc", "bestRank:asc", "providerCount:desc", "title:asc"] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSecretRefLike(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    (value.source === "env" || value.source === "file" || value.source === "exec") &&
+    typeof value.id === "string" &&
+    value.id.trim().length > 0
+  );
+}
+
+function cloneConfigForCredentialInjection(config: unknown): unknown {
+  if (!isRecord(config)) {
+    return config;
+  }
+  return structuredClone(config);
+}
+
+function resolveSearchConfig(config: unknown): Record<string, unknown> | undefined {
+  const tools = isRecord(config) ? config.tools : undefined;
+  const web = isRecord(tools) ? tools.web : undefined;
+  const search = isRecord(web) ? web.search : undefined;
+  return isRecord(search) ? search : undefined;
+}
+
+async function resolveSecretRefValue(params: {
+  config: unknown;
+  value: unknown;
+  path: string;
+}): Promise<string> {
+  const { resolveConfiguredSecretInputString } = await import("openclaw/plugin-sdk/config-runtime");
+  const resolved = await resolveConfiguredSecretInputString({
+    config: params.config as never,
+    env: process.env,
+    value: params.value,
+    path: params.path,
+    unresolvedReasonStyle: "detailed",
+  });
+  if (!resolved.value) {
+    throw new Error(resolved.unresolvedRefReason ?? `${params.path} SecretRef is unresolved.`);
+  }
+  return resolved.value;
+}
+
+async function resolveDelegatedRuntimeConfig(params: {
+  provider: ResolvedProvider;
+  runtimeProviders: RuntimeWebSearchProvider[];
+  runtimeConfig: unknown;
+}): Promise<unknown> {
+  const runtimeProvider = params.runtimeProviders.find((entry) => entry.id === params.provider.id);
+  if (!runtimeProvider || runtimeProvider.requiresCredential === false) {
+    return params.runtimeConfig;
+  }
+
+  const configuredCredential = runtimeProvider.getConfiguredCredentialValue?.(params.runtimeConfig);
+  if (isSecretRefLike(configuredCredential) && runtimeProvider.setConfiguredCredentialValue) {
+    const clonedConfig = cloneConfigForCredentialInjection(params.runtimeConfig);
+    const resolvedValue = await resolveSecretRefValue({
+      config: params.runtimeConfig,
+      value: configuredCredential,
+      path: runtimeProvider.credentialPath ?? `plugins.entries.${params.provider.id}.config.webSearch.apiKey`,
+    });
+    runtimeProvider.setConfiguredCredentialValue(clonedConfig, resolvedValue);
+    return clonedConfig;
+  }
+
+  const searchConfig = resolveSearchConfig(params.runtimeConfig);
+  const searchCredential = runtimeProvider.getCredentialValue?.(searchConfig);
+  if (isSecretRefLike(searchCredential) && runtimeProvider.setCredentialValue) {
+    const clonedConfig = cloneConfigForCredentialInjection(params.runtimeConfig);
+    const clonedSearchConfig = resolveSearchConfig(clonedConfig);
+    if (!clonedSearchConfig) {
+      return params.runtimeConfig;
+    }
+    const resolvedValue = await resolveSecretRefValue({
+      config: params.runtimeConfig,
+      value: searchCredential,
+      path: runtimeProvider.credentialPath ?? `tools.web.search.${params.provider.id}.apiKey`,
+    });
+    runtimeProvider.setCredentialValue(clonedSearchConfig, resolvedValue);
+    return clonedConfig;
+  }
+
+  return params.runtimeConfig;
+}
 
 const EVIDENCE_TABLE_COLUMNS: ReadonlyArray<FusionEvidenceTable["columns"][number]> = [
   {
@@ -729,9 +820,11 @@ export async function runSearchFusion(params: {
 }): Promise<FusionSearchPayload> {
   const brokerConfig = asConfig(params.pluginConfig);
   const sourceTierMode = coerceSourceTierMode(brokerConfig.sourceTierMode);
-  const runtimeConfig = getRuntimeConfigSnapshot() ?? params.config;
+  const runtimeConfigSnapshot = getRuntimeConfigSnapshot();
+  const runtimeConfig = runtimeConfigSnapshot ?? params.config;
+  const runtimeProviders = params.runtime.webSearch.listProviders({ config: runtimeConfig });
   const availableProviders = discoverProviders({
-    providers: params.runtime.webSearch.listProviders({ config: runtimeConfig }),
+    providers: runtimeProviders,
     config: runtimeConfig,
     selfId: SEARCH_FUSION_PROVIDER_ID,
   });
@@ -783,14 +876,20 @@ export async function runSearchFusion(params: {
     return {
       provider,
       startedAt,
-      promise: runProvider({
-        runtime: params.runtime,
-        config: runtimeConfig,
-        brokerConfig,
-        request: params.request,
+      promise: resolveDelegatedRuntimeConfig({
         provider,
-        sourceTierMode,
-      }).catch((error) => {
+        runtimeProviders,
+        runtimeConfig,
+      }).then((providerConfig) =>
+        runProvider({
+          runtime: params.runtime,
+          config: providerConfig,
+          brokerConfig,
+          request: params.request,
+          provider,
+          sourceTierMode,
+        }),
+      ).catch((error) => {
         const rejection: ProviderRunTaskRejection = {
           error,
           tookMs: Math.max(0, Date.now() - startedAt),

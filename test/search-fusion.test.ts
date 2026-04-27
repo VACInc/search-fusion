@@ -224,6 +224,170 @@ test("runSearchFusion prefers the active runtime config snapshot for credential-
   }
 });
 
+test("runSearchFusion resolves SecretRef credentials before delegating providers", async () => {
+  clearRuntimeConfigSnapshot();
+  const previousKey = process.env.MINIMAX_TEST_KEY;
+  process.env.MINIMAX_TEST_KEY = "resolved-minimax-key";
+  const rawConfig = {
+    plugins: {
+      entries: {
+        minimax: {
+          config: {
+            webSearch: {
+              apiKey: { source: "env", provider: "default", id: "MINIMAX_TEST_KEY" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const seen: { listProvidersConfigs: unknown[]; searchConfigs: unknown[] } = {
+    listProvidersConfigs: [],
+    searchConfigs: [],
+  };
+
+  try {
+    const payload = await runSearchFusion({
+      runtime: {
+        webSearch: {
+          listProviders: ({ config }: { config?: unknown } = {}) => {
+            seen.listProvidersConfigs.push(config);
+            return [
+              {
+                id: "minimax",
+                label: "MiniMax",
+                autoDetectOrder: 10,
+                envVars: [],
+                credentialPath: "plugins.entries.minimax.config.webSearch.apiKey",
+                getConfiguredCredentialValue: (cfg?: any) =>
+                  cfg?.plugins?.entries?.minimax?.config?.webSearch?.apiKey,
+                setConfiguredCredentialValue: (cfg: any, value: unknown) => {
+                  cfg.plugins.entries.minimax.config.webSearch.apiKey = value;
+                },
+                getCredentialValue: () => undefined,
+              },
+              {
+                id: "search-fusion",
+                label: "Search Fusion",
+                autoDetectOrder: 999,
+                envVars: [],
+                getConfiguredCredentialValue: () => "always-enabled",
+                getCredentialValue: () => undefined,
+              },
+            ];
+          },
+          search: async ({ config, providerId }: { config?: unknown; providerId?: string; args: Record<string, unknown> }) => {
+            seen.searchConfigs.push(config);
+            return {
+              provider: providerId ?? "minimax",
+              result: {
+                results: [
+                  {
+                    title: "MiniMax Search OK",
+                    url: "https://example.com/minimax",
+                    description: "search worked",
+                  },
+                ],
+              },
+            };
+          },
+        },
+      } as never,
+      config: rawConfig,
+      pluginConfig: {},
+      request: {
+        query: "openclaw",
+        providers: ["minimax"],
+      },
+    });
+
+    assert.deepEqual(payload.configuredProviders, ["minimax"]);
+    assert.deepEqual(payload.providersSucceeded, ["minimax"]);
+    assert.ok(seen.listProvidersConfigs.every((config) => config === rawConfig));
+    assert.equal(seen.searchConfigs.length, 1);
+    assert.notEqual(seen.searchConfigs[0], rawConfig);
+    assert.equal(
+      (seen.searchConfigs[0] as any)?.plugins?.entries?.minimax?.config?.webSearch?.apiKey,
+      "resolved-minimax-key",
+    );
+  } finally {
+    if (previousKey === undefined) {
+      delete process.env.MINIMAX_TEST_KEY;
+    } else {
+      process.env.MINIMAX_TEST_KEY = previousKey;
+    }
+  }
+});
+
+test("runSearchFusion passes raw configured credentials through to delegated providers", async () => {
+  clearRuntimeConfigSnapshot();
+  const rawConfig = {
+    plugins: {
+      entries: {
+        minimax: {
+          config: {
+            webSearch: {
+              apiKey: "raw-minimax-key",
+            },
+          },
+        },
+      },
+    },
+  };
+  const seen: { searchConfigs: unknown[] } = { searchConfigs: [] };
+
+  const payload = await runSearchFusion({
+    runtime: {
+      webSearch: {
+        listProviders: () => [
+          {
+            id: "minimax",
+            label: "MiniMax",
+            autoDetectOrder: 10,
+            envVars: [],
+            getConfiguredCredentialValue: (cfg?: any) =>
+              cfg?.plugins?.entries?.minimax?.config?.webSearch?.apiKey,
+            getCredentialValue: () => undefined,
+          },
+          {
+            id: "search-fusion",
+            label: "Search Fusion",
+            autoDetectOrder: 999,
+            envVars: [],
+            getConfiguredCredentialValue: () => "always-enabled",
+            getCredentialValue: () => undefined,
+          },
+        ],
+        search: async ({ config, providerId }: { config?: unknown; providerId?: string; args: Record<string, unknown> }) => {
+          seen.searchConfigs.push(config);
+          return {
+            provider: providerId ?? "minimax",
+            result: {
+              results: [
+                {
+                  title: "MiniMax Raw Search OK",
+                  url: "https://example.com/minimax-raw",
+                  description: "search worked",
+                },
+              ],
+            },
+          };
+        },
+      },
+    } as never,
+    config: rawConfig,
+    pluginConfig: {},
+    request: {
+      query: "openclaw",
+      providers: ["minimax"],
+    },
+  });
+
+  assert.deepEqual(payload.configuredProviders, ["minimax"]);
+  assert.deepEqual(payload.providersSucceeded, ["minimax"]);
+  assert.ok(seen.searchConfigs.every((config) => config === rawConfig));
+});
+
 test("runSearchFusion merges duplicate URLs across providers and keeps provider variants", async () => {
   const payload = await runSearchFusion({
     runtime: createRuntime() as never,

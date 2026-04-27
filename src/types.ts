@@ -102,8 +102,11 @@ export type RuntimeWebSearchProvider = {
   autoDetectOrder?: number;
   requiresCredential?: boolean;
   envVars?: readonly string[];
+  credentialPath?: string;
   getConfiguredCredentialValue?: (config?: unknown) => unknown;
+  setConfiguredCredentialValue?: (configTarget: unknown, value: unknown) => void;
   getCredentialValue?: (searchConfig?: Record<string, unknown> | undefined) => unknown;
+  setCredentialValue?: (searchConfigTarget: Record<string, unknown>, value: unknown) => void;
 };
 
 export type ResolvedProvider = {
