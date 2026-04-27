@@ -24,6 +24,10 @@ Always keep tests up to date for:
 Minimum verification after meaningful code or config-surface changes:
 - `npm test`
 - `npx tsc --noEmit`
+- `pnpm run plugin:check`
+- `pnpm run plugin:check:runtime`
+
+Every Search Fusion update should preserve the plugin-inspector GitHub Actions gate. If plugin registration, manifest metadata, config schema, tool names, or SDK imports change, expect the inspector output to be part of the review.
 
 If docs, metadata, or publish behavior changes, verify the affected files directly after editing.
 
