@@ -1,6 +1,6 @@
 {
   "name": "@openclaw/search-fusion",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Federated OpenClaw web search fusion that fans out across configured providers, merges results, and preserves attribution.",
   "license": "MIT",
   "private": false,
