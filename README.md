@@ -38,10 +38,10 @@ Search Fusion is a native **OpenClaw code plugin**, so ClawHub labeling it as **
 
 ```bash
 # recommended: ClawHub first, npm fallback
-openclaw plugins install @openclaw/search-fusion
+openclaw plugins install @vacinc/search-fusion
 
 # explicit ClawHub-only install
-openclaw plugins install clawhub:@openclaw/search-fusion
+openclaw plugins install clawhub:@vacinc/search-fusion
 ```
 
 ## Configure
@@ -280,7 +280,7 @@ import {
   filterByCapabilities,
   filterByAnyCapability,
   ALL_PROVIDER_CAPABILITIES,
-} from "@openclaw/search-fusion";
+} from "@vacinc/search-fusion";
 
 // What can brave do?
 resolveProviderCapabilities("brave");      // ["news", "privacy", "results"]
