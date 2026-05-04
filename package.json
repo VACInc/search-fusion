@@ -1,28 +1,8 @@
 {
-  "name": "@openclaw/search-fusion",
-  "version": "0.1.9",
+  "name": "@vacinc/search-fusion",
+  "version": "0.1.7",
   "description": "Federated OpenClaw web search fusion that fans out across configured providers, merges results, and preserves attribution.",
-  "license": "MIT",
-  "private": false,
   "type": "module",
-  "homepage": "https://github.com/openclaw/search-fusion#readme",
-  "bugs": {
-    "url": "https://github.com/openclaw/search-fusion/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/openclaw/search-fusion.git"
-  },
-  "keywords": [
-    "openclaw",
-    "openclaw-plugin",
-    "search",
-    "web-search",
-    "clawhub"
-  ],
-  "publishConfig": {
-    "access": "public"
-  },
   "openclaw": {
     "extensions": [
       "./index.ts"
@@ -34,16 +14,6 @@
     "build": {
       "openclawVersion": "2026.4.9",
       "pluginSdkVersion": "2026.4.9"
-    },
-    "install": {
-      "clawhubSpec": "clawhub:@openclaw/search-fusion",
-      "npmSpec": "@openclaw/search-fusion",
-      "defaultChoice": "clawhub",
-      "minHostVersion": ">=2026.4.9"
-    },
-    "release": {
-      "publishToClawHub": true,
-      "publishToNpm": true
     }
   },
   "scripts": {
