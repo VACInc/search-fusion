@@ -5,7 +5,7 @@ Search Fusion repo rules.
 ## ClawHub package identity
 
 Canonical package:
-- `@openclaw/search-fusion`
+- `@vacinc/search-fusion`
 
 Keep install and publish guidance aligned to that package name.
 
