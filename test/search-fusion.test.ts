@@ -319,6 +319,126 @@ test("runSearchFusion resolves SecretRef credentials before delegating providers
   }
 });
 
+test("runSearchFusion resolves inactive runtime SecretRefs against source config", async () => {
+  clearRuntimeConfigSnapshot();
+  const previousKey = process.env.MINIMAX_SOURCE_TEST_KEY;
+  process.env.MINIMAX_SOURCE_TEST_KEY = "resolved-source-minimax-key";
+  const sourceConfig = {
+    secrets: {
+      providers: {
+        named_env: {
+          source: "env",
+          allowlist: ["MINIMAX_SOURCE_TEST_KEY"],
+        },
+      },
+    },
+    plugins: {
+      entries: {
+        minimax: {
+          config: {
+            webSearch: {
+              apiKey: { source: "env", provider: "named_env", id: "MINIMAX_SOURCE_TEST_KEY" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const runtimeConfig = {
+    plugins: {
+      entries: {
+        minimax: {
+          config: {
+            webSearch: {
+              apiKey: { source: "env", provider: "named_env", id: "MINIMAX_SOURCE_TEST_KEY" },
+            },
+          },
+        },
+      },
+    },
+  };
+  const seen: { listProvidersConfigs: unknown[]; searchConfigs: unknown[] } = {
+    listProvidersConfigs: [],
+    searchConfigs: [],
+  };
+
+  setRuntimeConfigSnapshot(runtimeConfig as never, sourceConfig as never);
+
+  try {
+    const payload = await runSearchFusion({
+      runtime: {
+        webSearch: {
+          listProviders: ({ config }: { config?: unknown } = {}) => {
+            seen.listProvidersConfigs.push(config);
+            return [
+              {
+                id: "minimax",
+                label: "MiniMax",
+                autoDetectOrder: 10,
+                envVars: [],
+                credentialPath: "plugins.entries.minimax.config.webSearch.apiKey",
+                getConfiguredCredentialValue: (cfg?: any) =>
+                  cfg?.plugins?.entries?.minimax?.config?.webSearch?.apiKey,
+                setConfiguredCredentialValue: (cfg: any, value: unknown) => {
+                  cfg.plugins.entries.minimax.config.webSearch.apiKey = value;
+                },
+                getCredentialValue: () => undefined,
+              },
+              {
+                id: "search-fusion",
+                label: "Search Fusion",
+                autoDetectOrder: 999,
+                envVars: [],
+                getConfiguredCredentialValue: () => "always-enabled",
+                getCredentialValue: () => undefined,
+              },
+            ];
+          },
+          search: async ({ config, providerId }: { config?: unknown; providerId?: string; args: Record<string, unknown> }) => {
+            seen.searchConfigs.push(config);
+            return {
+              provider: providerId ?? "minimax",
+              result: {
+                results: [
+                  {
+                    title: "MiniMax Source SecretRef OK",
+                    url: "https://example.com/minimax-source",
+                    description: "search worked",
+                  },
+                ],
+              },
+            };
+          },
+        },
+      } as never,
+      config: runtimeConfig,
+      sourceConfig,
+      pluginConfig: {},
+      request: {
+        query: "openclaw",
+        providers: ["minimax"],
+      },
+    });
+
+    assert.deepEqual(payload.configuredProviders, ["minimax"]);
+    assert.deepEqual(payload.providersSucceeded, ["minimax"]);
+    assert.ok(seen.listProvidersConfigs.every((config) => config === runtimeConfig));
+    assert.equal(seen.searchConfigs.length, 1);
+    assert.notEqual(seen.searchConfigs[0], runtimeConfig);
+    assert.equal(
+      (seen.searchConfigs[0] as any)?.plugins?.entries?.minimax?.config?.webSearch?.apiKey,
+      "resolved-source-minimax-key",
+    );
+  } finally {
+    clearRuntimeConfigSnapshot();
+    if (previousKey === undefined) {
+      delete process.env.MINIMAX_SOURCE_TEST_KEY;
+    } else {
+      process.env.MINIMAX_SOURCE_TEST_KEY = previousKey;
+    }
+  }
+});
+
 test("runSearchFusion passes raw configured credentials through to delegated providers", async () => {
   clearRuntimeConfigSnapshot();
   const rawConfig = {

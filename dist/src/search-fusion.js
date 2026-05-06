@@ -39,6 +39,19 @@ function resolveSearchConfig(config) {
     const search = isRecord(web) ? web.search : undefined;
     return isRecord(search) ? search : undefined;
 }
+async function resolveRuntimeSourceConfig(fallback) {
+    try {
+        const runtimeConfig = await import("openclaw/plugin-sdk/config-runtime");
+        const getSourceSnapshot = runtimeConfig.getRuntimeConfigSourceSnapshot;
+        if (typeof getSourceSnapshot === "function") {
+            return getSourceSnapshot() ?? fallback;
+        }
+    }
+    catch {
+        // Older OpenClaw SDKs do not expose source snapshots to plugins.
+    }
+    return fallback;
+}
 async function resolveSecretRefValue(params) {
     const { resolveConfiguredSecretInputString } = await import("openclaw/plugin-sdk/config-runtime");
     const resolved = await resolveConfiguredSecretInputString({
@@ -59,18 +72,39 @@ async function resolveDelegatedRuntimeConfig(params) {
         return params.runtimeConfig;
     }
     const configuredCredential = runtimeProvider.getConfiguredCredentialValue?.(params.runtimeConfig);
-    if (isSecretRefLike(configuredCredential) && runtimeProvider.setConfiguredCredentialValue) {
+    const sourceConfiguredCredential = runtimeProvider.getConfiguredCredentialValue?.(params.sourceConfig);
+    if (isSecretRefLike(configuredCredential) &&
+        runtimeProvider.setConfiguredCredentialValue) {
         const clonedConfig = cloneConfigForCredentialInjection(params.runtimeConfig);
         const resolvedValue = await resolveSecretRefValue({
-            config: params.runtimeConfig,
+            config: params.sourceConfig,
             value: configuredCredential,
             path: runtimeProvider.credentialPath ?? `plugins.entries.${params.provider.id}.config.webSearch.apiKey`,
         });
         runtimeProvider.setConfiguredCredentialValue(clonedConfig, resolvedValue);
         return clonedConfig;
     }
+    if (configuredCredential !== undefined) {
+        return params.runtimeConfig;
+    }
+    if (isSecretRefLike(sourceConfiguredCredential) &&
+        runtimeProvider.setConfiguredCredentialValue) {
+        const clonedConfig = cloneConfigForCredentialInjection(params.sourceConfig);
+        const resolvedValue = await resolveSecretRefValue({
+            config: params.sourceConfig,
+            value: sourceConfiguredCredential,
+            path: runtimeProvider.credentialPath ?? `plugins.entries.${params.provider.id}.config.webSearch.apiKey`,
+        });
+        runtimeProvider.setConfiguredCredentialValue(clonedConfig, resolvedValue);
+        return clonedConfig;
+    }
+    if (sourceConfiguredCredential !== undefined) {
+        return params.sourceConfig;
+    }
     const searchConfig = resolveSearchConfig(params.runtimeConfig);
     const searchCredential = runtimeProvider.getCredentialValue?.(searchConfig);
+    const sourceSearchConfig = resolveSearchConfig(params.sourceConfig);
+    const sourceSearchCredential = runtimeProvider.getCredentialValue?.(sourceSearchConfig);
     if (isSecretRefLike(searchCredential) && runtimeProvider.setCredentialValue) {
         const clonedConfig = cloneConfigForCredentialInjection(params.runtimeConfig);
         const clonedSearchConfig = resolveSearchConfig(clonedConfig);
@@ -78,12 +112,32 @@ async function resolveDelegatedRuntimeConfig(params) {
             return params.runtimeConfig;
         }
         const resolvedValue = await resolveSecretRefValue({
-            config: params.runtimeConfig,
+            config: params.sourceConfig,
             value: searchCredential,
             path: runtimeProvider.credentialPath ?? `tools.web.search.${params.provider.id}.apiKey`,
         });
         runtimeProvider.setCredentialValue(clonedSearchConfig, resolvedValue);
         return clonedConfig;
+    }
+    if (searchCredential !== undefined) {
+        return params.runtimeConfig;
+    }
+    if (isSecretRefLike(sourceSearchCredential) && runtimeProvider.setCredentialValue) {
+        const clonedConfig = cloneConfigForCredentialInjection(params.sourceConfig);
+        const clonedSearchConfig = resolveSearchConfig(clonedConfig);
+        if (!clonedSearchConfig) {
+            return params.sourceConfig;
+        }
+        const resolvedValue = await resolveSecretRefValue({
+            config: params.sourceConfig,
+            value: sourceSearchCredential,
+            path: runtimeProvider.credentialPath ?? `tools.web.search.${params.provider.id}.apiKey`,
+        });
+        runtimeProvider.setCredentialValue(clonedSearchConfig, resolvedValue);
+        return clonedConfig;
+    }
+    if (sourceSearchCredential !== undefined) {
+        return params.sourceConfig;
     }
     return params.runtimeConfig;
 }
@@ -634,10 +688,11 @@ export async function runSearchFusion(params) {
     const sourceTierMode = coerceSourceTierMode(brokerConfig.sourceTierMode);
     const runtimeConfigSnapshot = getRuntimeConfigSnapshot();
     const runtimeConfig = runtimeConfigSnapshot ?? params.config;
+    const sourceConfig = params.sourceConfig ?? await resolveRuntimeSourceConfig(params.config);
     const runtimeProviders = params.runtime.webSearch.listProviders({ config: runtimeConfig });
     const availableProviders = discoverProviders({
         providers: runtimeProviders,
-        config: runtimeConfig,
+        config: sourceConfig,
         selfId: SEARCH_FUSION_PROVIDER_ID,
     });
     const selectedProviders = resolveSelectedProviders({
@@ -685,6 +740,7 @@ export async function runSearchFusion(params) {
                 provider,
                 runtimeProviders,
                 runtimeConfig,
+                sourceConfig,
             }).then((providerConfig) => runProvider({
                 runtime: params.runtime,
                 config: providerConfig,

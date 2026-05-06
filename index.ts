@@ -162,6 +162,7 @@ function createSearchFusionProvider(api: SearchFusionPluginApi): SearchFusionWeb
         await runSearchFusion({
           runtime: api.runtime,
           config: resolveRuntimeConfigSnapshot(api.config),
+          sourceConfig: api.config,
           pluginConfig: api.pluginConfig,
           request: args as ProviderSelectionRequest,
         }),
@@ -187,6 +188,7 @@ const plugin = {
         const payload = await runSearchFusion({
           runtime: searchApi.runtime,
           config: resolveRuntimeConfigSnapshot(searchApi.config),
+          sourceConfig: searchApi.config,
           pluginConfig: searchApi.pluginConfig,
           request: params as SearchFusionRequest,
         });

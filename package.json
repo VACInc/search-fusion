@@ -33,10 +33,10 @@
     "openclaw": ">=2026.4.9"
   },
   "devDependencies": {
-    "@openclaw/plugin-inspector": "0.3.4",
+    "@openclaw/plugin-inspector": "0.3.10",
     "@sinclair/typebox": "0.34.48",
     "@types/node": "^22.15.30",
-    "openclaw": "2026.4.9",
+    "openclaw": "2026.5.6",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },

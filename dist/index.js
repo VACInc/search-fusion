@@ -76,6 +76,7 @@ function createSearchFusionProvider(api) {
             execute: async (args) => await runSearchFusion({
                 runtime: api.runtime,
                 config: resolveRuntimeConfigSnapshot(api.config),
+                sourceConfig: api.config,
                 pluginConfig: api.pluginConfig,
                 request: args,
             }),
@@ -98,6 +99,7 @@ const plugin = {
                 const payload = await runSearchFusion({
                     runtime: searchApi.runtime,
                     config: resolveRuntimeConfigSnapshot(searchApi.config),
+                    sourceConfig: searchApi.config,
                     pluginConfig: searchApi.pluginConfig,
                     request: params,
                 });
