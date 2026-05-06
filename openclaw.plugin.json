@@ -2,7 +2,16 @@
   "id": "search-fusion",
   "name": "Search Fusion",
   "description": "Federated web search fusion for OpenClaw that reuses configured providers in parallel.",
-  "version": "0.1.9",
+  "version": "0.1.10",
+  "contracts": {
+    "webSearchProviders": [
+      "search-fusion"
+    ],
+    "tools": [
+      "search_fusion",
+      "search_fusion_providers"
+    ]
+  },
   "uiHints": {
     "webSearch": {
       "label": "Search Fusion web_search provider",
