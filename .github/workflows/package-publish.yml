@@ -20,4 +20,4 @@ jobs:
       source: VACInc/openclaw-search-fusion
       ref: ${{ github.ref_name }}
     secrets:
-      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
+      clawhub_token: ${{ secrets.CLAWHUB_TOKEN || secrets.OPENCLAW_CLAWHUB_TOKEN }}
