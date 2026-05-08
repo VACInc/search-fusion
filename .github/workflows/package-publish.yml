@@ -3,6 +3,8 @@ name: Package Publish
 on:
   workflow_dispatch:
   push:
+    branches:
+      - "tags/v*"
     tags:
       - "v*"
 
